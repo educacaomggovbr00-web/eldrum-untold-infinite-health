@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PACKAGE_ARCHIVE="${1:?Usage: build_modified_split_package.sh source-splits.zip patch.hasm function-id output-dir hermes-decomp}"
+PACKAGE_ARCHIVE="${1:?Usage: build_modified_split_package.sh source-splits.zip-or-apks patch.hasm function-id output-dir hermes-decomp}"
 HASM_PATH="${2:?HASM patch file is required}"
 FUNCTION_ID="${3:?Target function ID is required}"
 OUT_DIR="${4:-build/output}"
@@ -30,10 +30,8 @@ if (( ${#APK_FILES[@]} < 2 )); then
   echo "::error::The supplied archive contains fewer than two APK files. This app is delivered as split APKs. Upload a ZIP/APKM containing the base APK and every config split (arm64_v8a, language, density, etc.), not just com.gotterdammerung.untold.apk."
   exit 20
 fi
-if ! find "$EXTRACT_DIR" -type f -name manifest.json -print -quit | grep -q .; then
-  echo "::error::manifest.json is missing. Upload the complete APKMirror package archive, not only individual base APK."
-  exit 20
-fi
+# APKMirror/APKCube .apks archives may use toc.pb or vendor metadata instead
+# of manifest.json. Validate the actual APK splits and package IDs below.
 
 BASE_APK=""
 APP_ID="com.gotterdammerung.untold"
