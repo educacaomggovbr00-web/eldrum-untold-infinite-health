@@ -53,6 +53,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Download APKEditor merge tool
+        run: |
+          set -euo pipefail
+          mkdir -p tools/apkeditor
+          curl -fL --retry 3 \
+            https://github.com/REAndroid/APKEditor/releases/download/V1.4.9/APKEditor-1.4.9.jar \
+            -o tools/apkeditor/APKEditor-1.4.9.jar
+          echo "a9cd40df818845456be6d696de6110c89edf4b0a0580cb83438ed6b25a366e67  tools/apkeditor/APKEditor-1.4.9.jar" | sha256sum -c -
+          echo "APKEDITOR_JAR=$GITHUB_WORKSPACE/tools/apkeditor/APKEditor-1.4.9.jar" >> "$GITHUB_ENV"
+          java -jar tools/apkeditor/APKEditor-1.4.9.jar -version
+
       - name: Set up Android SDK build tools
         uses: android-actions/setup-android@v3
         with:
@@ -119,7 +130,8 @@ jobs:
             patches/actor-change-health.hasm \
             "$FUNCTION_ID" \
             build/output \
-            "$HERMES_BIN"
+            "$HERMES_BIN" \
+            "$APKEDITOR_JAR"
 
       - name: Publish signed split APK set
         if: ${{ success() }}
@@ -127,6 +139,8 @@ jobs:
         with:
           name: eldrum-untold-infinite-health-split-apks
           path: |
+            build/output/eldrum-untold-infinite-health.apk
+            build/output/standalone-apk-sha256.txt
             build/output/eldrum-untold-infinite-health-splits.zip
             build/output/splits/*.apk
             build/output/INSTALL-NOTES.txt
