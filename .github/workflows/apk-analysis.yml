@@ -17,13 +17,13 @@ on:
         description: Expected SHA-256 of the complete source archive
         required: false
         default: db76d30372b9f6b4bebc3071a29ca6caf08fd44d038ddb6ddca424854387e600
+        type: string
   push:
     branches: [main]
     paths:
       - '.github/workflows/apk-analysis.yml'
       - 'scripts/**'
       - 'patches/**'
-        type: string
 
 permissions:
   contents: read
@@ -88,7 +88,7 @@ jobs:
             --pattern "$PACKAGE_ASSET" \
             --dir input \
             --clobber; then
-            echo "::error::Release asset '$PACKAGE_ASSET' was not found. Upload a ZIP/APKM containing the complete Eldrum split set (base APK + config.arm64_v8a.apk + config.en.apk + config.mdpi.apk + manifest.json). Do not upload only the base APK." 
+            echo "::error::Release asset '$PACKAGE_ASSET' was not found. Upload the complete .apks/.apkm/.zip split archive, not only the base APK." 
             exit 30
           fi
           test -s "input/$PACKAGE_ASSET"
