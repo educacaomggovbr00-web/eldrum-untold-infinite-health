@@ -30,7 +30,7 @@ permissions:
 
 concurrency:
   group: eldrum-focused-health-analysis
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
