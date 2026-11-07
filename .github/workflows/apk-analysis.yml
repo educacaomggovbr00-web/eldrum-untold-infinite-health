@@ -1,0 +1,141 @@
+name: Eldrum APK analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub Release tag containing the APK
+        required: true
+        default: Aaasa
+        type: string
+      apk_asset:
+        description: Exact APK asset filename
+        required: true
+        default: com.gotterdammerung.untold.apk
+        type: string
+      expected_sha256:
+        description: Expected SHA-256 (leave the default for release Aaasa)
+        required: false
+        default: d57863ea0b01ba1b3162584eea5f839fed22bdd7185a253045af9f7ededd9700
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apk-analysis.yml'
+      - 'scripts/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eldrum-apk-analysis
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect APK and Hermes bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APK_TAG: ${{ inputs.release_tag || 'Aaasa' }}
+      APK_ASSET: ${{ inputs.apk_asset || 'com.gotterdammerung.untold.apk' }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 || 'd57863ea0b01ba1b3162584eea5f839fed22bdd7185a253045af9f7ededd9700' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build tools
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install "platform-tools" "build-tools;36.0.0"
+          echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
+
+      - name: Download and verify analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools
+          curl -fL --retry 3 \
+            https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar \
+            -o tools/apktool.jar
+          echo "dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423  tools/apktool.jar" | sha256sum -c -
+
+          curl -fL --retry 3 \
+            https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip \
+            -o tools/jadx.zip
+          echo "545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  tools/jadx.zip" | sha256sum -c -
+          mkdir -p tools/jadx
+          unzip -q tools/jadx.zip -d tools/jadx
+          JADX_BIN="$(find "$PWD/tools/jadx" -type f -path '*/bin/jadx' -print -quit)"
+          test -n "$JADX_BIN"
+          chmod +x "$JADX_BIN"
+          echo "JADX_BIN=$JADX_BIN" >> "$GITHUB_ENV"
+
+          curl -fL --retry 3 \
+            https://github.com/SymbioticSec/hermes-decomp/releases/download/v0.2.4/hermes-decomp-v0.2.4-linux-x86_64.tar.gz \
+            -o tools/hermes-decomp.tar.gz
+          echo "6e070410432575698657b38d3497f66fd91c0c00f63880d6776703d81d99b5ac  tools/hermes-decomp.tar.gz" | sha256sum -c -
+          mkdir -p tools/hermes
+          tar -xzf tools/hermes-decomp.tar.gz -C tools/hermes
+          HERMES_BIN="$(find "$PWD/tools/hermes" -type f -name hermes-decomp -print -quit)"
+          test -n "$HERMES_BIN"
+          chmod +x "$HERMES_BIN"
+          echo "HERMES_BIN=$HERMES_BIN" >> "$GITHUB_ENV"
+
+          java -jar tools/apktool.jar --version
+          "$JADX_BIN" --version
+          "$HERMES_BIN" --help | head -n 8
+
+      - name: Download APK from the selected release
+        run: |
+          set -euo pipefail
+          mkdir -p input
+          gh release download "$APK_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$APK_ASSET" \
+            --dir input \
+            --clobber
+          test -s "input/$APK_ASSET"
+          echo "APK_PATH=$GITHUB_WORKSPACE/input/$APK_ASSET" >> "$GITHUB_ENV"
+
+      - name: Verify APK hash and inspect
+        run: |
+          set -euo pipefail
+          if [[ -n "$EXPECTED_SHA256" ]]; then
+            echo "$EXPECTED_SHA256  input/$APK_ASSET" | sha256sum -c -
+          else
+            echo "::warning::No expected SHA-256 supplied; recording the downloaded hash only."
+          fi
+          sha256sum "input/$APK_ASSET"
+          unzip -tq "input/$APK_ASSET"
+          apksigner verify --verbose --print-certs "input/$APK_ASSET" \
+            > build-signature.txt 2>&1
+          cat build-signature.txt
+
+      - name: Decode APK and inspect Hermes
+        env:
+          APKTOOL_JAR: ${{ github.workspace }}/tools/apktool.jar
+          APKSIGNER_BIN: apksigner
+          APKANALYZER_BIN: apkanalyzer
+        run: |
+          bash scripts/analyze_apk.sh "$APK_PATH" build
+
+      - name: Publish concise analysis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eldrum-analysis-report
+          path: build/reports/
+          if-no-files-found: warn
+          retention-days: 5
