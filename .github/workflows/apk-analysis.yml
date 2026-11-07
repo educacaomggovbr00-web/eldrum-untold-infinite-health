@@ -120,7 +120,6 @@ jobs:
             "$FUNCTION_ID" \
             build/output \
             "$HERMES_BIN" \
-            "$APKEDITOR_JAR"
 
       - name: Publish signed split APK set
         if: ${{ success() }}
