@@ -30,7 +30,7 @@ permissions:
 
 concurrency:
   group: eldrum-focused-health-analysis
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   inspect:
@@ -136,8 +136,6 @@ jobs:
 
       - name: Build modified APK when a verified patch is committed
         if: ${{ hashFiles('patches/actor-change-health.hasm') != '' && hashFiles('patches/actor-change-health-function-id.txt') != '' }}
-        env:
-          HERMES_BIN: ${{ github.workspace }}/tools/hermes/hermes-decomp
         run: |
           FUNCTION_ID="$(tr -d '[:space:]' < patches/actor-change-health-function-id.txt)"
           bash scripts/build_modified_apk.sh "$APK_PATH" \
