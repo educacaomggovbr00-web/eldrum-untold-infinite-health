@@ -79,13 +79,29 @@ grep -F 'JStrictNotEqual L54, r12, r13' "$PATCHED_ASM" >/dev/null
 grep -F 'JGreaterEqual L54, r9, r0' "$PATCHED_ASM" >/dev/null
 echo "Player-only guard verified in function $FUNCTION_ID."
 
-echo "[2/6] Prepare one shared signing key for every split..."
+echo "[2/6] Prepare one shared signing key and pin PairIP to this exact certificate..."
 KEYSTORE="$WORK_DIR/temporary-mod-signing.keystore"
 KEY_PASS="$(openssl rand -hex 24)"
-keytool -genkeypair -noprompt \
-  -keystore "$KEYSTORE" -storepass "$KEY_PASS" -keypass "$KEY_PASS" \
-  -alias eldrum-local-mod -keyalg RSA -keysize 2048 -validity 3650 \
-  -dname "CN=Eldrum Untold Local Mod"
+PAIRIP_SIGNATURE_B64=""
+for attempt in $(seq 1 30); do
+  rm -f "$KEYSTORE"
+  keytool -genkeypair -noprompt \
+    -keystore "$KEYSTORE" -storepass "$KEY_PASS" -keypass "$KEY_PASS" \
+    -alias eldrum-local-mod -keyalg RSA -keysize 2048 -validity 3650 \
+    -dname "CN=Eldrum Untold Local Mod" >/dev/null 2>&1
+  PAIRIP_SIGNATURE_B64="$(keytool -exportcert -keystore "$KEYSTORE" -storepass "$KEY_PASS" \
+    -alias eldrum-local-mod | openssl dgst -sha256 -binary | base64 -w0)"
+  # Keep DEX string_ids lexicographically sorted. The existing pinned digest
+  # sits between "0" and ":"; a Base64 digest beginning with a digit fits there.
+  if [[ "$PAIRIP_SIGNATURE_B64" =~ ^[0-9] ]]; then
+    break
+  fi
+done
+if [[ ! "$PAIRIP_SIGNATURE_B64" =~ ^[0-9] ]]; then
+  echo "::error::Could not generate a signer digest compatible with the DEX string table ordering."
+  exit 32
+fi
+echo "PairIP signer SHA-256 (Base64): $PAIRIP_SIGNATURE_B64"
 
 CERT_SHA=""
 : > "$OUT_DIR/splits-manifest.txt"
@@ -96,6 +112,7 @@ CERT_SHA=""
   echo "Patched Hermes function: $FUNCTION_ID"
   echo "APK split count: ${#APK_FILES[@]}"
   echo "All splits are re-signed with one shared local test certificate."
+  echo "PairIP pinned signer SHA-256 (Base64): $PAIRIP_SIGNATURE_B64"
 } >> "$OUT_DIR/splits-manifest.txt"
 
 echo "[3/6] Patch the base split and retain all other split contents..."
@@ -103,8 +120,11 @@ for source_apk in "${APK_FILES[@]}"; do
   filename="$(basename "$source_apk")"
   work_apk="$WORK_DIR/$filename"
   if [[ "$source_apk" == "$BASE_APK" ]]; then
+      unzip -p "$BASE_APK" classes2.dex > "$WORK_DIR/classes2.dex"
+    python3 scripts/patch_pairip_signature.py "$WORK_DIR/classes2.dex" "$PAIRIP_SIGNATURE_B64"
     python3 scripts/repack_apk.py "$source_apk" "$PATCHED_BUNDLE" "$work_apk" \
-      --asset-path assets/index.android.bundle
+      --asset-path assets/index.android.bundle \
+      --pairip-dex-patch "$WORK_DIR/classes2.dex"
   else
     cp "$source_apk" "$work_apk"
   fi
@@ -185,6 +205,8 @@ Output:
 The original APKS container structure and non-APK metadata were preserved.
 All $SIGNED_COUNT APK splits were re-signed with one shared local test certificate.
 The base split contains the patched Hermes player-health function $FUNCTION_ID.
+The PairIP SignatureCheck signer pin was updated to the SHA-256 digest of this exact build certificate.
+The PairIP signature comparison remains enabled and is verified against the signed APK certificate.
 
 IMPORTANT:
 - This is an APKS split package, not a universal/single APK.
