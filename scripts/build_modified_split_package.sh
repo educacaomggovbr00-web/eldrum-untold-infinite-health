@@ -11,7 +11,6 @@ APKEDITOR_JAR="${6:?APKEditor jar path is required}"
 [[ "$FUNCTION_ID" =~ ^[0-9]+$ ]] || { echo "Invalid function ID: $FUNCTION_ID" >&2; exit 2; }
 [[ -s "$HASM_PATH" ]] || { echo "Patch file missing or empty: $HASM_PATH" >&2; exit 2; }
 [[ -s "$PACKAGE_ARCHIVE" ]] || { echo "Source split archive missing: $PACKAGE_ARCHIVE" >&2; exit 2; }
-[[ -s "$APKEDITOR_JAR" ]] || { echo "APKEditor jar missing: $APKEDITOR_JAR" >&2; exit 2; }
 command -v apksigner >/dev/null
 command -v zipalign >/dev/null
 command -v apkanalyzer >/dev/null
@@ -134,58 +133,69 @@ for source_apk in "${APK_FILES[@]}"; do
   echo "$filename | package=$signed_id | signer_sha256=$this_cert" >> "$OUT_DIR/splits-manifest.txt"
 done
 
-echo "[5/8] Verify the complete split set..."
+echo "[5/6] Verify the complete split set..."
 SIGNED_COUNT="$(find "$SIGNED_DIR" -maxdepth 1 -type f -iname '*.apk' | wc -l)"
 [[ "$SIGNED_COUNT" -eq "${#APK_FILES[@]}" ]] || { echo "Expected ${#APK_FILES[@]} signed splits, found $SIGNED_COUNT" >&2; exit 28; }
 BASE_NAME="$(basename "$BASE_APK")"
 [[ -s "$SIGNED_DIR/$BASE_NAME" ]] || { echo "Signed base APK missing" >&2; exit 29; }
 
-echo "[6/8] Merge all patched splits into one standalone APK with APKEditor..."
-MERGED_UNSIGNED="$WORK_DIR/eldrum-untold-infinite-health-merged-unsigned.apk"
-java -jar "$APKEDITOR_JAR" m -i "$SIGNED_DIR" -o "$MERGED_UNSIGNED" -validate-modules
-[[ -s "$MERGED_UNSIGNED" ]] || { echo "APKEditor did not create the merged APK." >&2; exit 30; }
+echo "[6/6] Rebuild the original .apks container, preserving its metadata..."
+OUTPUT_APKS="$OUT_DIR/eldrum-untold-infinite-health.apks"
+python3 - "$PACKAGE_ARCHIVE" "$SIGNED_DIR" "$OUTPUT_APKS" <<'PY'
+from pathlib import Path
+import sys, zipfile
 
-echo "[7/8] Align, sign, and verify the standalone APK..."
-UNIVERSAL_ALIGNED="$WORK_DIR/eldrum-untold-infinite-health-aligned.apk"
-FINAL_APK="$OUT_DIR/eldrum-untold-infinite-health.apk"
-zipalign -p -f 4 "$MERGED_UNSIGNED" "$UNIVERSAL_ALIGNED"
-zipalign -c -v 4 "$UNIVERSAL_ALIGNED" > "$WORK_DIR/universal-zipalign.txt"
-apksigner sign --ks "$KEYSTORE" --ks-key-alias eldrum-local-mod \
-  --ks-pass "pass:$KEY_PASS" --key-pass "pass:$KEY_PASS" \
-  --out "$FINAL_APK" "$UNIVERSAL_ALIGNED"
-apksigner verify --verbose --print-certs "$FINAL_APK" > "$OUT_DIR/signature-verification.txt"
-FINAL_ID="$(apkanalyzer manifest application-id "$FINAL_APK")"
-[[ "$FINAL_ID" == "$APP_ID" ]] || { echo "Standalone APK package ID changed: $FINAL_ID" >&2; exit 31; }
-apkanalyzer manifest print "$FINAL_APK" > "$WORK_DIR/standalone-manifest.xml"
-if grep -Eiq 'splitTypes|requiredSplitTypes|isSplitRequired|com\.android\.vending\.splits' "$WORK_DIR/standalone-manifest.xml"; then
-  echo "::error::Merged APK still contains split-only manifest declarations."
-  exit 32
-fi
-sha256sum "$FINAL_APK" > "$OUT_DIR/standalone-apk-sha256.txt"
+source, signed_dir, output = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+signed = {p.name: p for p in signed_dir.glob("*.apk")}
+used = set()
+with zipfile.ZipFile(source, "r") as src, zipfile.ZipFile(output, "w") as dst:
+    for info in src.infolist():
+        if info.is_dir():
+            dst.writestr(info, b"")
+            continue
+        data = src.read(info.filename)
+        if info.filename.lower().endswith(".apk"):
+            name = Path(info.filename).name
+            if name not in signed:
+                raise SystemExit(f"Missing signed split for source entry: {info.filename}")
+            if name in used:
+                raise SystemExit(f"Duplicate APK basename in source archive: {name}")
+            data = signed[name].read_bytes()
+            used.add(name)
+        dst.writestr(info, data)
+missing = set(signed) - used
+if missing:
+    raise SystemExit("Signed splits not included in rebuilt archive: " + ", ".join(sorted(missing)))
+with zipfile.ZipFile(output, "r") as check:
+    bad = check.testzip()
+    if bad:
+        raise SystemExit(f"Rebuilt APKS archive failed ZIP integrity at {bad}")
+    apk_count = sum(1 for n in check.namelist() if n.lower().endswith(".apk"))
+if apk_count != len(signed):
+    raise SystemExit(f"Expected {len(signed)} APK entries in rebuilt archive, found {apk_count}")
+print(f"Rebuilt original APKS container with {apk_count} patched/re-signed splits; preserved all non-APK metadata.")
+PY
+sha256sum "$OUTPUT_APKS" > "$OUT_DIR/apks-sha256.txt"
 
-echo "[8/8] Write installation notes..."
 cat > "$OUT_DIR/INSTALL-NOTES.txt" <<EOF
 Eldrum: Untold - experimental player-only infinite-health mod
 
-Install the single file:
-  eldrum-untold-infinite-health.apk
+Output:
+  eldrum-untold-infinite-health.apks
 
-This standalone APK was merged from all $SIGNED_COUNT source splits with APKEditor,
-then aligned and signed. It passed package ID, split-manifest, zipalign and signature checks.
+The original APKS container structure and non-APK metadata were preserved.
+All $SIGNED_COUNT APK splits were re-signed with one shared local test certificate.
+The base split contains the patched Hermes player-health function $FUNCTION_ID.
 
 IMPORTANT:
-- This modified APK uses a temporary local test certificate and cannot update the original.
+- This is an APKS split package, not a universal/single APK.
+- Install the complete archive with a compatible split-APK installer.
+- The modified package has a temporary local test certificate and cannot update the original.
 - Back up game progress before uninstalling the original app.
-- Android may require uninstalling the developer-signed original before installing this build.
-- Static patch checks passed; actual gameplay still needs device testing.
+- Static patch checks passed; actual gameplay and startup still require device testing.
 EOF
-
-echo "Package ID: $APP_ID" > "$OUT_DIR/application-id.txt"
-echo "Source split count: $SIGNED_COUNT" >> "$OUT_DIR/application-id.txt"
-echo "APKEditor: $(basename "$APKEDITOR_JAR")" >> "$OUT_DIR/application-id.txt"
-echo "Shared signer certificate SHA-256: $CERT_SHA" >> "$OUT_DIR/signature-verification.txt"
 sha256sum "$SIGNED_DIR"/*.apk > "$OUT_DIR/modified-splits-sha256.txt"
 
 rm -f "$KEYSTORE"
-echo "Standalone APK ready: $FINAL_APK"
-echo "Merged and signed $SIGNED_COUNT splits into one standalone APK."
+echo "APKS package ready: $OUTPUT_APKS"
+echo "Rebuilt original APKS format with $SIGNED_COUNT patched and signed splits."
