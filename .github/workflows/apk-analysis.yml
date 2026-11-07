@@ -133,6 +133,7 @@ jobs:
             build/output/INSTALL-NOTES.txt
             build/output/splits-manifest.txt
             build/output/modified-splits-sha256.txt
+            build/output/pairip-signature.txt
             build/output/function-*-after-patch.hasm
           retention-days: 5
           if-no-files-found: error
