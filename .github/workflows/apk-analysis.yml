@@ -95,13 +95,13 @@ jobs:
             echo "$EXPECTED_SHA256  input/$PACKAGE_ASSET" | sha256sum -c -
           fi
           unzip -tq "input/$PACKAGE_ASSET"
-          mapfile -t APK_ENTRIES < <(unzip -Z1 "input/$PACKAGE_ASSET" | grep -Ei '\\.apk$' || true)
+          mapfile -t APK_ENTRIES < <(unzip -Z1 "input/$PACKAGE_ASSET" | grep -Ei '\.apk$' || true)
           printf 'Found %s APK entries in source archive.\n' "${#APK_ENTRIES[@]}"
           if (( ${#APK_ENTRIES[@]} < 2 )); then
             echo "::error::This is a single APK, not a complete split package. Missing config APKs cause INSTALL_FAILED_MISSING_SPLIT."
             exit 31
           fi
-          unzip -Z1 "input/$PACKAGE_ASSET" | grep -Eiq '(^|/)manifest\\.json$' || {
+          unzip -Z1 "input/$PACKAGE_ASSET" | grep -Eiq '(^|/)manifest\.json$' || {
             echo "::error::manifest.json is missing. Upload the full APKMirror package archive, not just one extracted APK."
             exit 32
           }
