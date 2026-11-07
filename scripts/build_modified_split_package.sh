@@ -120,7 +120,7 @@ for source_apk in "${APK_FILES[@]}"; do
   filename="$(basename "$source_apk")"
   work_apk="$WORK_DIR/$filename"
   if [[ "$source_apk" == "$BASE_APK" ]]; then
-      unzip -p "$BASE_APK" classes2.dex > "$WORK_DIR/classes2.dex"
+    unzip -p "$BASE_APK" classes2.dex > "$WORK_DIR/classes2.dex"
     python3 scripts/patch_pairip_signature.py "$WORK_DIR/classes2.dex" "$PAIRIP_SIGNATURE_B64"
     python3 scripts/repack_apk.py "$source_apk" "$PATCHED_BUNDLE" "$work_apk" \
       --asset-path assets/index.android.bundle \
