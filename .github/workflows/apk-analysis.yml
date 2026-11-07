@@ -134,6 +134,28 @@ jobs:
         run: |
           bash scripts/analyze_apk.sh "$APK_PATH" build
 
+      - name: Build modified APK when a verified patch is committed
+        if: ${{ hashFiles('patches/actor-change-health.hasm') != '' && hashFiles('patches/actor-change-health-function-id.txt') != '' }}
+        env:
+          HERMES_BIN: ${{ github.workspace }}/tools/hermes/hermes-decomp
+        run: |
+          FUNCTION_ID="$(tr -d '[:space:]' < patches/actor-change-health-function-id.txt)"
+          bash scripts/build_modified_apk.sh "$APK_PATH" \
+            patches/actor-change-health.hasm "$FUNCTION_ID" build/output "$HERMES_BIN"
+
+      - name: Publish modified APK artifact
+        if: ${{ success() && hashFiles('build/output/eldrum-untold-infinite-health.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eldrum-untold-infinite-health-mod
+          path: |
+            build/output/eldrum-untold-infinite-health.apk
+            build/output/INSTALL-NOTES.txt
+            build/output/modified-apk-sha256.txt
+            build/output/signature-verification.txt
+            build/output/application-id.txt
+          retention-days: 5
+
       - name: Publish concise analysis report
         if: always()
         uses: actions/upload-artifact@v4

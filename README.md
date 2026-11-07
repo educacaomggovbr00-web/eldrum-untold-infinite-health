@@ -50,3 +50,14 @@ The modified APK, once built, should be delivered as a short-lived GitHub Action
 - [JADX](https://github.com/skylot/jadx)
 - [hermes-decomp](https://github.com/SymbioticSec/hermes-decomp)
 - [Android SDK Build Tools](https://developer.android.com/tools/releases/build-tools)
+
+## Automated APK build stage
+
+When both `patches/actor-change-health.hasm` and `patches/actor-change-health-function-id.txt` exist, the same workflow:
+1. patches only the selected HBC function,
+2. replaces only `assets/index.android.bundle` in a copy of the original APK,
+3. zipaligns and signs the result with an ephemeral test key,
+4. verifies the package ID, ZIP and APK signature,
+5. uploads the modified APK as a separate five-day Actions artifact.
+
+Those patch files are deliberately not created until the HASM function is identified and reviewed. A wrong function ID or unverified patch must not be built.
