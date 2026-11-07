@@ -23,6 +23,7 @@ on:
     paths:
       - '.github/workflows/apk-analysis.yml'
       - 'scripts/**'
+      - 'patches/**'
 
 permissions:
   contents: read

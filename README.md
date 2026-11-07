@@ -1,62 +1,52 @@
 # Eldrum: Untold — Infinite Health research
 
-Projeto de análise técnica local de uma cópia do APK de Eldrum: Untold, com objetivo de estudar o sistema de vida em uma campanha single-player/offline.
+A reproducible reverse-engineering and local single-player modding workflow for the APK published in this repository's GitHub Release.
 
-## Estado atual
+## Current target APK
 
-- APK de origem: release Aaasa, asset com.gotterdammerung.untold.apk.
-- SHA-256 conhecido: d57863ea0b01ba1b3162584eea5f839fed22bdd7185a253045af9f7ededd9700.
-- O fluxo abaixo faz inventário, descompilação e busca de referências relacionadas a vida/dano.
-- **Ainda não existe patch de vida infinita nem APK modificado.** O patch só deve ser criado depois de identificar a função correta e validar o formato do bytecode.
+- Release tag: `Aaasa`
+- Asset: `com.gotterdammerung.untold.apk`
+- Application ID: `com.gotterdammerung.untold`
+- Version name/code: `1.11.5 (2592)`
+- APK SHA-256: `d57863ea0b01ba1b3162584eea5f839fed22bdd7185a253045af9f7ededd9700`
+- Hermes: HBC 98, modern 12-byte function headers
 
-Não coloque APKs proprietários, arquivos DEX, bundles Hermes descompilados ou cópias do código do jogo no repositório público. O fluxo baixa o APK da release e mantém os arquivos temporários no runner; somente relatórios resumidos são publicados como artifact do workflow.
+The release asset is downloaded by Actions at run time. APKs and proprietary game code are not committed to the repository.
 
-## Ferramentas instaladas pelo workflow
+## Workflow/toolchain
 
-| Ferramenta | Versão | Uso |
-|---|---:|---|
-| OpenJDK | 17 | Runtime das ferramentas Java |
-| Apktool | 3.0.3 | Manifest, recursos e Smali; decode/rebuild |
-| JADX | 1.5.6 | DEX para código Java legível |
-| hermes-decomp | 0.2.4 | Inspecionar e descompilar bundle React Native/Hermes; suporte a HBC 98 |
-| Android SDK Build Tools | 36.0.0 | aapt2, apksigner e zipalign |
-| Android SDK Command-line Tools | fornecido pelo setup-android | apkanalyzer / sdkmanager |
+The workflow downloads and verifies:
+- OpenJDK 17
+- Apktool 3.0.3 (manifest/resources/Smali inspection)
+- JADX 1.5.6 (DEX inspection)
+- hermes-decomp 0.2.4 (HBC 98 cross-reference, disassembly/HASM export and patching)
+- Android SDK Build Tools 36.0.0 (zipalign/apksigner/apkanalyzer)
 
-As versões dos três binários externos são fixadas e seus SHA-256 são verificados antes do uso. O APK também é verificado contra o hash da release.
+Run it from **Actions → Eldrum APK analysis → Run workflow**. It downloads the APK from the selected Release, verifies SHA-256 and signature, extracts the JS bundle, searches cross-references to `health`, `alive`, `maxHealth`, `changeHealth`, `_id` and `player`, ranks candidate function IDs and exports their HASM listings.
 
-## Executar
+## Reverse-engineering findings
 
-1. Abra a aba **Actions** deste repositório.
-2. Escolha **Eldrum APK analysis**.
-3. Selecione **Run workflow**.
-4. Use a tag Aaasa e o nome do asset padrão, a menos que publique outra release.
-5. Aguarde o job terminar e baixe o artifact **eldrum-analysis-report**.
+The first full HBC decompilation identified:
+- `Actor` is the base class and owns `health`, `maxHealth`, `alive` and `changeHealth`.
+- `Character` (the player) sets `_id = "player"`.
+- `Npc` is a separate actor class and uses its own NPC max-health stat.
+- Combat damage calls the actor health-change method; story events can also change character health.
 
-O workflow também roda quando os arquivos de análise ou o próprio workflow são alterados na branch main.
+This means a global "ignore all negative health changes" patch would make NPCs immortal too. The desired patch must be guarded by the player's `_id` (or by a player-only caller) and must preserve healing and all NPC behavior.
 
-## O que o relatório contém
+## Patch/build status
 
-- SHA-256, tamanho, application ID e versão do APK.
-- Resultado da verificação de assinatura e certificado.
-- Resultado do decode Apktool e JADX (logs resumidos).
-- Versão/layout do bundle Hermes encontrado.
-- Trechos pequenos de contexto em torno de nomes como UntoldCharacterMaxHealth, UntoldNpcMaxHealth, Resilience, health, HP e damage.
+**No modified APK is published yet.** The current step exports exact HBC function candidates and HASM so the target function can be inspected. A patch will only be added after its function ID and instruction semantics are confirmed.
 
-O artifact **não** inclui o APK, o bundle completo, DEX nem o código-fonte descompilado.
+The HBC 98 format is modern. The selected `hermes-decomp` release supports function-body patching/resizing for modern HBC, but the resulting bundle still requires verification against the app's embedded Hermes runtime. The pipeline keeps the original APK untouched.
 
-## Plano de modificação
+## Distribution and install notes
 
-1. Confirmar qual bundle Hermes contém a lógica do jogo.
-2. Identificar a rotina que atualiza a vida do personagem e separar dano do jogador de dano dos NPCs.
-3. Inspecionar a função e as instruções antes de qualquer alteração.
-4. Criar um patch mínimo e reversível, preservando o APK original.
-5. Reconstruir/alinhar/assinar uma cópia de teste e verificar assinatura, instalação e comportamento no Moto G35.
+The modified APK, once built, should be delivered as a short-lived GitHub Actions artifact rather than a public repository commit or Release asset. It must be signed with a new local test key. Android will not accept it as an update over the original app signed by the developer; back up game progress before uninstalling the original to install a differently signed build.
 
-A documentação do hermes-decomp informa que ele modifica bytecode/HASM diretamente, não recompila JavaScript descompilado. Em formatos Hermes modernos (HBC 97+), há limitações de alterações que mudem o tamanho de funções/strings. Portanto, não será aplicado um patch genérico nem uma substituição de texto sem confirmar que é semanticamente correta.
+## References
 
-## Links das ferramentas
-
-- Apktool: https://github.com/iBotPeaches/Apktool
-- JADX: https://github.com/skylot/jadx
-- hermes-decomp: https://github.com/SymbioticSec/hermes-decomp
-- Android SDK Build Tools: https://developer.android.com/tools/releases/build-tools
+- [Apktool](https://github.com/iBotPeaches/Apktool)
+- [JADX](https://github.com/skylot/jadx)
+- [hermes-decomp](https://github.com/SymbioticSec/hermes-decomp)
+- [Android SDK Build Tools](https://developer.android.com/tools/releases/build-tools)
