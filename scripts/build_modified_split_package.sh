@@ -15,10 +15,12 @@ command -v zipalign >/dev/null
 command -v apkanalyzer >/dev/null
 command -v unzip >/dev/null
 command -v zip >/dev/null
+OUT_DIR="$(realpath -m "$OUT_DIR")"
 
 WORK_DIR="build/split-work"
 EXTRACT_DIR="$WORK_DIR/source"
 SIGNED_DIR="$OUT_DIR/splits"
+rm -rf "$WORK_DIR" "$SIGNED_DIR"
 mkdir -p "$EXTRACT_DIR" "$SIGNED_DIR" "$OUT_DIR"
 unzip -tq "$PACKAGE_ARCHIVE"
 unzip -q "$PACKAGE_ARCHIVE" -d "$EXTRACT_DIR"
@@ -26,6 +28,10 @@ unzip -q "$PACKAGE_ARCHIVE" -d "$EXTRACT_DIR"
 mapfile -d '' APK_FILES < <(find "$EXTRACT_DIR" -type f -iname '*.apk' -print0 | sort -z)
 if (( ${#APK_FILES[@]} < 2 )); then
   echo "::error::The supplied archive contains fewer than two APK files. This app is delivered as split APKs. Upload a ZIP/APKM containing the base APK and every config split (arm64_v8a, language, density, etc.), not just com.gotterdammerung.untold.apk."
+  exit 20
+fi
+if ! find "$EXTRACT_DIR" -type f -name manifest.json -print -quit | grep -q .; then
+  echo "::error::manifest.json is missing. Upload the complete APKMirror package archive, not only individual base APK."
   exit 20
 fi
 
@@ -153,7 +159,7 @@ sha256sum "$SIGNED_DIR"/*.apk > "$OUT_DIR/modified-splits-sha256.txt"
 echo "[6/6] Create a ZIP containing every signed split..."
 (
   cd "$SIGNED_DIR"
-  zip -q -j "$OLDPWD/$OUT_DIR/eldrum-untold-infinite-health-splits.zip" ./*.apk
+  zip -q -j "$OUT_DIR/eldrum-untold-infinite-health-splits.zip" ./*.apk
 )
 
 rm -f "$KEYSTORE"
