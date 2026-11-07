@@ -1,70 +1,55 @@
-# Eldrum: Untold — Infinite Health research
+# Eldrum: Untold — Infinite Health (split-package workflow)
 
-A reproducible reverse-engineering and local single-player modding workflow for the APK published in this repository's GitHub Release.
+This repository contains a local single-player patch experiment for the Hermes bundle in Eldrum: Untold. It does not distribute the game's APK or proprietary code.
 
-## Current target APK
+## Important: this app is delivered as split APKs
 
-- Release tag: `Aaasa`
-- Asset: `com.gotterdammerung.untold.apk`
-- Application ID: `com.gotterdammerung.untold`
-- Version name/code: `1.11.5 (2592)`
-- APK SHA-256: `d57863ea0b01ba1b3162584eea5f839fed22bdd7185a253045af9f7ededd9700`
-- Hermes: HBC 98, modern 12-byte function headers
+The source package shown on the device contains multiple required files, for example:
 
-The release asset is downloaded by Actions at run time. APKs and proprietary game code are not committed to the repository.
+- `com.gotterdammerung.untold.apk` — base APK (contains `assets/index.android.bundle`)
+- `config.arm64_v8a.apk` — native libraries for ARM64
+- `config.en.apk` — English resources
+- `config.mdpi.apk` — screen-density resources
+- `manifest.json` and possibly `icon.png` — package metadata
 
-## Workflow/toolchain
+**Do not upload or build from the base APK alone.** A single base APK can pass ZIP and APK-signature checks and still fail on Android with `INSTALL_FAILED_MISSING_SPLIT`. That is what the previous workflow missed.
 
-The workflow downloads and verifies:
+## Input required before running Actions
+
+1. On the phone, keep the extracted package folder containing all APK split files and `manifest.json`.
+2. Compress the folder contents into one ZIP archive. Ensure the ZIP contains the APK files and `manifest.json` (a parent directory inside the ZIP is also accepted).
+3. Upload that archive to the GitHub Release `Aaasa` with the exact name `eldrum-untold-splits.zip`.
+4. Open **Actions → Eldrum APK analysis and split-package build → Run workflow**. Keep the default release tag and asset name, unless you used another name.
+
+The current Release asset `com.gotterdammerung.untold.apk` is only a single APK and is not sufficient for a split install. The workflow is intentionally fail-fast until the complete archive is uploaded.
+
+## What the corrected workflow does
+
+- Verifies the source archive and requires at least two APKs plus `manifest.json`.
+- Checks every split has package ID `com.gotterdammerung.untold`.
+- Finds the unique APK containing `assets/index.android.bundle`; this is the only APK whose Hermes bundle is patched.
+- Applies the player-only HBC patch to function `25773`.
+- Preserves all other split APK contents.
+- Zip-aligns and signs every APK split with one shared temporary local test key.
+- Verifies every APK, the shared signer certificate, and the package ID.
+- Publishes all signed split APKs and a ZIP containing the complete set as a five-day Actions artifact.
+
+## Player-only patch
+
+The current experimental HASM patch targets function `25773` (`Actor.changeHealth`). It checks that the actor's `_id` equals `player` and returns before applying negative health changes. Positive healing and non-player actors should continue through the original code path.
+
+This is a static bytecode-level patch; the workflow's checks do **not** prove the game launches or that the gameplay effect works. A real on-device test is still required.
+
+## Installation
+
+1. Download the Actions artifact `eldrum-untold-infinite-health-split-apks`.
+2. Extract the artifact ZIP, then extract `eldrum-untold-infinite-health-splits.zip` (or use the individual APK files already included in the artifact).
+3. In SAI or InstallWithOptions, select **all** APK files together in one install session. Never install only the base APK.
+4. The split set is re-signed with a local test certificate. It cannot update an installation signed by the original developer. Back up local saves before uninstalling the original app.
+
+## Tools
+
 - OpenJDK 17
-- Apktool 3.0.3 (manifest/resources/Smali inspection)
-- JADX 1.5.6 (DEX inspection)
-- hermes-decomp 0.2.4 (HBC 98 cross-reference, disassembly/HASM export and patching)
-- Android SDK Build Tools 36.0.0 (zipalign/apksigner/apkanalyzer)
+- Android SDK Build Tools 36.0.0 (`zipalign`, `apksigner`, `apkanalyzer`)
+- hermes-decomp 0.2.4
 
-Run it from **Actions → Eldrum APK analysis → Run workflow**. It downloads the APK from the selected Release, verifies SHA-256 and signature, extracts the JS bundle, searches cross-references to `health`, `alive`, `maxHealth`, `changeHealth`, `_id` and `player`, ranks candidate function IDs and exports their HASM listings.
-
-## Reverse-engineering findings
-
-The first full HBC decompilation identified:
-- `Actor` is the base class and owns `health`, `maxHealth`, `alive` and `changeHealth`.
-- `Character` (the player) sets `_id = "player"`.
-- `Npc` is a separate actor class and uses its own NPC max-health stat.
-- Combat damage calls the actor health-change method; story events can also change character health.
-
-This means a global "ignore all negative health changes" patch would make NPCs immortal too. The desired patch must be guarded by the player's `_id` (or by a player-only caller) and must preserve healing and all NPC behavior.
-
-## Patch/build status
-
-**No modified APK is published yet.** The current step exports exact HBC function candidates and HASM so the target function can be inspected. A patch will only be added after its function ID and instruction semantics are confirmed.
-
-The HBC 98 format is modern. The selected `hermes-decomp` release supports function-body patching/resizing for modern HBC, but the resulting bundle still requires verification against the app's embedded Hermes runtime. The pipeline keeps the original APK untouched.
-
-## Distribution and install notes
-
-The modified APK, once built, should be delivered as a short-lived GitHub Actions artifact rather than a public repository commit or Release asset. It must be signed with a new local test key. Android will not accept it as an update over the original app signed by the developer; back up game progress before uninstalling the original to install a differently signed build.
-
-## References
-
-- [Apktool](https://github.com/iBotPeaches/Apktool)
-- [JADX](https://github.com/skylot/jadx)
-- [hermes-decomp](https://github.com/SymbioticSec/hermes-decomp)
-- [Android SDK Build Tools](https://developer.android.com/tools/releases/build-tools)
-
-## Automated APK build stage
-
-When both `patches/actor-change-health.hasm` and `patches/actor-change-health-function-id.txt` exist, the same workflow:
-1. patches only the selected HBC function,
-2. replaces only `assets/index.android.bundle` in a copy of the original APK,
-3. zipaligns and signs the result with an ephemeral test key,
-4. verifies the package ID, ZIP and APK signature,
-5. uploads the modified APK as a separate five-day Actions artifact.
-
-Those patch files are deliberately not created until the HASM function is identified and reviewed. A wrong function ID or unverified patch must not be built.
-
-
-## Player-only infinite-health patch (experimental)
-
-The focused xref report identified the shared `Actor.changeHealth` body as function ID `25773`. The HASM patch adds a player identity guard before the original health logic: only negative adjustments to the actor whose `_id` equals `player` are ignored. All positive changes and all NPC adjustments continue through the unmodified code path.
-
-The same workflow now skips the slow analysis pass when both verified patch files are present, builds the APK from the original release asset, validates the patched bytecode and APK signature, and uploads the result as a separate short-lived artifact. The resulting APK still requires an on-device gameplay test.
