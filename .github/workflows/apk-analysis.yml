@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: eldrum-apk-analysis
+  group: eldrum-focused-health-analysis
   cancel-in-progress: true
 
 jobs:
