@@ -82,12 +82,15 @@ for BUNDLE in "${BUNDLES[@]}"; do
 
   strings -a "$BUNDLE" >> "$OUT_DIR/raw-bundle-strings.txt" || true
 
-  for TERM in changeHealth calculateDamageInfliction maxHealth; do
-    "$HERMES_BIN" xref "$BUNDLE" --query "$TERM" \
-      > "$REPORT/hermes-xref-${INDEX}-${TERM}.txt" 2>&1 || true
-  done
+  # The first analysis already decompiled the full bundle. This pass targets
+  # modules confirmed to contain Actor, Character, Npc, combat, and event dispatch.
+  "$HERMES_BIN" modules "$BUNDLE" --limit 4000 \
+    > "$REPORT/hermes-modules-${INDEX}.txt" 2>&1 || true
+  "$HERMES_BIN" dump "$BUNDLE" --kind functions --json \
+    > "$REPORT/hermes-functions-${INDEX}.json" 2>&1 || true
 
-  if ! "$HERMES_BIN" decompile "$BUNDLE" --deep -o "$JS_OUT" \
+  if ! "$HERMES_BIN" decompile "$BUNDLE" \
+      --modules 2017,2031,2052,2059,2202 --deep -o "$JS_OUT" \
     > "$REPORT/hermes-decompile-${INDEX}.log" 2>&1; then
     echo "Hermes decompilation failed; inspect the corresponding log." >> "$INFO"
   fi
