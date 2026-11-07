@@ -141,6 +141,11 @@ for source_apk in "${APK_FILES[@]}"; do
   apksigner verify --verbose --print-certs "$signed" > "$WORK_DIR/signature-$filename.txt"
   this_cert="$(awk '/Signer #1 certificate SHA-256 digest:/ {print $NF; exit}' "$WORK_DIR/signature-$filename.txt")"
   [[ -n "$this_cert" ]] || { echo "Could not read signer certificate from $filename" >&2; exit 25; }
+  this_cert_b64="$(printf '%s' "$this_cert" | xxd -r -p | base64 -w0)"
+  [[ "$this_cert_b64" == "$PAIRIP_SIGNATURE_B64" ]] || {
+    echo "::error::The signed APK certificate digest does not match the digest pinned in PairIP."
+    exit 33
+  }
   if [[ -z "$CERT_SHA" ]]; then
     CERT_SHA="$this_cert"
   elif [[ "$CERT_SHA" != "$this_cert" ]]; then
@@ -195,6 +200,7 @@ if apk_count != len(signed):
 print(f"Rebuilt original APKS container with {apk_count} patched/re-signed splits; preserved all non-APK metadata.")
 PY
 sha256sum "$OUTPUT_APKS" > "$OUT_DIR/apks-sha256.txt"
+printf 'PairIP signer SHA-256 (Base64): %s\n' "$PAIRIP_SIGNATURE_B64" > "$OUT_DIR/pairip-signature.txt"
 
 cat > "$OUT_DIR/INSTALL-NOTES.txt" <<EOF
 Eldrum: Untold - experimental player-only infinite-health mod
