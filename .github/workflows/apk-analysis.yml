@@ -129,14 +129,11 @@ jobs:
           name: eldrum-untold-infinite-health-split-apks
           path: |
             build/output/eldrum-untold-infinite-health.apks
-            build/output/standalone-apk-sha256.txt
             build/output/apks-sha256.txt
             build/output/splits/*.apk
             build/output/INSTALL-NOTES.txt
             build/output/splits-manifest.txt
             build/output/modified-splits-sha256.txt
-            build/output/application-id.txt
-            build/output/signature-verification.txt
             build/output/function-*-after-patch.hasm
           retention-days: 5
           if-no-files-found: error
