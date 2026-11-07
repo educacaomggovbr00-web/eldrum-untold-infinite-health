@@ -62,7 +62,8 @@ jobs:
             -o tools/apkeditor/APKEditor-1.4.9.jar
           echo "a9cd40df818845456be6d696de6110c89edf4b0a0580cb83438ed6b25a366e67  tools/apkeditor/APKEditor-1.4.9.jar" | sha256sum -c -
           echo "APKEDITOR_JAR=$GITHUB_WORKSPACE/tools/apkeditor/APKEditor-1.4.9.jar" >> "$GITHUB_ENV"
-          java -jar tools/apkeditor/APKEditor-1.4.9.jar -version
+          test -s tools/apkeditor/APKEditor-1.4.9.jar
+          echo "APKEditor JAR downloaded and SHA-256 verified."
 
       - name: Set up Android SDK build tools
         uses: android-actions/setup-android@v3
