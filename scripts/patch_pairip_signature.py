@@ -38,7 +38,7 @@ def read_string(data: bytes, off: int):
     return data[pos:end].decode("utf-8", "replace"), pos, end, utf16_len
 
 def verify_target_fields(data: bytes, digest_index: int, strings, types):
-    _, _, _, _, field_count, field_off, _, _, _, _, class_count, class_off = struct.unpack_from(
+    _, _, _, _, _, _, field_count, field_off, _, _, class_count, class_off = struct.unpack_from(
         "<12I", data, 56
     )
     fields = []
