@@ -1,0 +1,56 @@
+0000  LoadParam r4, 2
+0003  LoadConstUndefined r1
+0005  JStrictNotEqual L11, r4, r1
+0009  LoadConstFalse r4
+L11:
+000b  LoadParam r5, 3
+000e  JStrictNotEqual L20, r5, r1
+0012  LoadConstZero r5
+L20:
+0014  GetParentEnvironment r3, 0
+0017  LoadFromEnvironment r6, r3, 0
+001b  LoadConstString r11, "_id"
+001f  GetByVal r12, r6, r11
+0023  LoadConstString r13, "player"
+0027  JStrictNotEqual L54, r12, r13
+002b  LoadParam r9, 1
+002e  LoadConstZero r0
+0030  JGreaterEqual L54, r9, r0
+0034  Ret r1
+L54:
+0036  GetById r10, r6, 0, "health"
+003c  GetById r3, r6, 1, "maxHealth"
+0042  GetById r7, r6, 2, "alive"
+0048  JmpTrue L77, r7
+004b  Ret r1
+L77:
+004d  LoadParam r9, 1
+0050  LoadConstZero r0
+0052  Mov r8, r5
+0055  JNotGreater L103, r9, r0
+0059  JGreaterEqual L100, r5, r3
+005d  Mov r8, r5
+0060  JStrictNotEqual L103, r8, r0
+L100:
+0064  Mov r8, r3
+L103:
+0067  GetParentEnvironment r3, 1
+006a  LoadFromEnvironment r7, r3, 8
+006e  GetById r5, r7, 3, "calcLimitedChangeValue"
+0074  Call4 r5, r5, r7, r9, r10, r8
+007b  GetById r8, r6, 0, "health"
+0081  GetGlobalObject r7
+0083  TryGetById r9, r7, 4, "Math"
+0089  GetByIdShort r7, r9, 5, "round"
+008e  Call2 r7, r7, r9, r5
+0093  Add r7, r8, r7
+0097  PutByIdStrict r6, r7, 0, "health"
+009d  JmpFalse L191, r4
+00a0  GetById r4, r6, 6, "sendChangeNotification"
+00a6  LoadFromEnvironment r3, r3, 6
+00aa  GetByIdShort r7, r3, 7, "t"
+00af  LoadConstString r3, "CHARACTER-DERIVATIVE-HEALTH_POINTS-SHORT"
+00b3  Call2 r3, r7, r1, r3
+00b8  Call4 r3, r4, r6, r3, r5, r1
+L191:
+00bf  Ret r1

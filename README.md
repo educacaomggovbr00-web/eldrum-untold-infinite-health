@@ -61,3 +61,10 @@ When both `patches/actor-change-health.hasm` and `patches/actor-change-health-fu
 5. uploads the modified APK as a separate five-day Actions artifact.
 
 Those patch files are deliberately not created until the HASM function is identified and reviewed. A wrong function ID or unverified patch must not be built.
+
+
+## Player-only infinite-health patch (experimental)
+
+The focused xref report identified the shared `Actor.changeHealth` body as function ID `25773`. The HASM patch adds a player identity guard before the original health logic: only negative adjustments to the actor whose `_id` equals `player` are ignored. All positive changes and all NPC adjustments continue through the unmodified code path.
+
+The same workflow now skips the slow analysis pass when both verified patch files are present, builds the APK from the original release asset, validates the patched bytecode and APK signature, and uploads the result as a separate short-lived artifact. The resulting APK still requires an on-device gameplay test.

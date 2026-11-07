@@ -16,8 +16,12 @@ UNALIGNED_APK="$OUT_DIR/eldrum-untold-infinite-health-unaligned.apk"
 ALIGNED_APK="$OUT_DIR/eldrum-untold-infinite-health-aligned.apk"
 FINAL_APK="$OUT_DIR/eldrum-untold-infinite-health.apk"
 
-mkdir -p "$OUT_DIR" build/patched
-[[ -s "$SOURCE_BUNDLE" ]] || { echo "Original Hermes bundle not found. Run analysis first." >&2; exit 2; }
+mkdir -p "$OUT_DIR" build/patched "$(dirname "$SOURCE_BUNDLE")"
+if [[ ! -s "$SOURCE_BUNDLE" ]]; then
+  echo "Extracting the original Hermes bundle directly for build-only workflow..."
+  unzip -p "$APK_PATH" assets/index.android.bundle > "$SOURCE_BUNDLE"
+fi
+[[ -s "$SOURCE_BUNDLE" ]] || { echo "Original Hermes bundle not found in APK." >&2; exit 2; }
 
 echo "[1/5] Patch only the confirmed player-health function..."
 "$HERMES_BIN" patch-function "$SOURCE_BUNDLE" \
@@ -25,6 +29,14 @@ echo "[1/5] Patch only the confirmed player-health function..."
 "$HERMES_BIN" info "$PATCHED_BUNDLE" > "$OUT_DIR/patched-hermes-info.txt"
 "$HERMES_BIN" emit-hasm "$PATCHED_BUNDLE" --function "$FUNCTION_ID" \
   -o "$OUT_DIR/function-$FUNCTION_ID-after-patch.hasm"
+
+PATCHED_ASM="$OUT_DIR/function-$FUNCTION_ID-after-patch.hasm"
+grep -F 'LoadConstString r11, "_id"' "$PATCHED_ASM" >/dev/null
+grep -F 'GetByVal r12, r6, r11' "$PATCHED_ASM" >/dev/null
+grep -F 'LoadConstString r13, "player"' "$PATCHED_ASM" >/dev/null
+grep -F 'JStrictNotEqual L54, r12, r13' "$PATCHED_ASM" >/dev/null
+grep -F 'JGreaterEqual L54, r9, r0' "$PATCHED_ASM" >/dev/null
+echo "Player-only guard verified in patched function $FUNCTION_ID."
 
 echo "[2/5] Replace only assets/index.android.bundle in a copy of the APK..."
 python3 scripts/repack_apk.py \

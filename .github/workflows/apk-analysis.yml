@@ -127,6 +127,7 @@ jobs:
           cat build-signature.txt
 
       - name: Decode APK and inspect Hermes
+        if: ${{ hashFiles('patches/actor-change-health.hasm') == '' || hashFiles('patches/actor-change-health-function-id.txt') == '' }}
         env:
           APKTOOL_JAR: ${{ github.workspace }}/tools/apktool.jar
           APKSIGNER_BIN: apksigner
