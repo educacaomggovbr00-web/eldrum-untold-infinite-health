@@ -6,7 +6,6 @@ HASM_PATH="${2:?HASM patch file is required}"
 FUNCTION_ID="${3:?Target function ID is required}"
 OUT_DIR="${4:-build/output}"
 HERMES_BIN="${5:?hermes-decomp executable path is required}"
-APKEDITOR_JAR="${6:?APKEditor jar path is required}"
 
 [[ "$FUNCTION_ID" =~ ^[0-9]+$ ]] || { echo "Invalid function ID: $FUNCTION_ID" >&2; exit 2; }
 [[ -s "$HASM_PATH" ]] || { echo "Patch file missing or empty: $HASM_PATH" >&2; exit 2; }
