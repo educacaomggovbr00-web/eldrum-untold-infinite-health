@@ -54,10 +54,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Install Android build tools
         run: |
-          yes | sdkmanager --licenses >/dev/null
           sdkmanager --install "platform-tools" "build-tools;36.0.0"
           echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
 
@@ -95,7 +96,8 @@ jobs:
 
           java -jar tools/apktool.jar --version
           "$JADX_BIN" --version
-          "$HERMES_BIN" --help | head -n 8
+          "$HERMES_BIN" --help > tools/hermes-help.txt
+          head -n 8 tools/hermes-help.txt
 
       - name: Download APK from the selected release
         run: |
