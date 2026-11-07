@@ -69,3 +69,44 @@ with out.open("w", encoding="utf-8") as handle:
     handle.write(f"\nTotal candidate matches included: {len(hits)} (maximum {max_hits}).\n")
 
 print(f"Candidate report written: {out} ({len(hits)} matches)")
+
+
+# Emit larger, function-oriented context for the Actor health model. This report
+# stays small and deliberately excludes the full proprietary game bundle.
+bundle_js = root / "decompiled" / "1-index.android.bundle.js"
+actor_out = root / "reports" / "actor-health-context.txt"
+if bundle_js.exists():
+    lines = bundle_js.read_text(encoding="utf-8", errors="replace").splitlines()
+    anchors = re.compile(
+        r"\bclass Actor\b|\bcalculateDamageInfliction\b|\bchangeHealth\b|"
+        r"\bhealthPercentage\b|\bmaxHealth\b|\balive\b",
+        re.IGNORECASE,
+    )
+    indices = [i for i, line in enumerate(lines) if anchors.search(line)]
+    windows = []
+    for i in indices:
+        start, end = max(0, i - 28), min(len(lines), i + 42)
+        if windows and start <= windows[-1][1] + 3:
+            windows[-1] = (windows[-1][0], max(windows[-1][1], end))
+        else:
+            windows.append((start, end))
+    with actor_out.open("w", encoding="utf-8") as handle:
+        handle.write("ELDRUM: UNTOLD — ACTOR / HEALTH IMPLEMENTATION CONTEXT\n")
+        handle.write("Decompiled HBC 98 code context. Treat as a lead; verify against runtime behavior.\n\n")
+        for start, end in windows[:40]:
+            module_line = None
+            for back in range(start, -1, -1):
+                if lines[back].strip().startswith("// Module "):
+                    module_line = lines[back].strip()
+                    break
+            handle.write(f"===== Lines {start + 1}-{end}; {module_line or 'module header not found'} =====\n")
+            for line_no in range(start, end):
+                line = lines[line_no].rstrip()
+                if len(line) > 1500:
+                    line = line[:1500] + " … [line truncated]"
+                handle.write(f"{line_no + 1}: {line}\n")
+            handle.write("\n")
+        handle.write(f"Anchor matches: {len(indices)}; context windows: {min(len(windows), 40)}.\n")
+    print(f"Actor context report written: {actor_out} ({len(indices)} anchors)")
+else:
+    actor_out.write_text("Decompiled bundle was not found; Actor context unavailable.\n", encoding="utf-8")
