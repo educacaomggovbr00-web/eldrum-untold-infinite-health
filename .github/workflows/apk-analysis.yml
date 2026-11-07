@@ -9,14 +9,20 @@ on:
         default: Aaasa
         type: string
       package_asset:
-        description: ZIP/APKM containing the base APK, all config APK splits, and manifest.json
+        description: Exact .apks/.apkm/.zip asset filename in the selected Release
         required: true
-        default: eldrum-untold-splits.zip
+        default: Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks
         type: string
       expected_sha256:
-        description: Expected SHA-256 of the complete source archive (optional)
+        description: Expected SHA-256 of the complete source archive
         required: false
-        default: ''
+        default: db76d30372b9f6b4bebc3071a29ca6caf08fd44d038ddb6ddca424854387e600
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apk-analysis.yml'
+      - 'scripts/**'
+      - 'patches/**'
         type: string
 
 permissions:
@@ -33,9 +39,9 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: ${{ inputs.release_tag }}
-      PACKAGE_ASSET: ${{ inputs.package_asset }}
-      EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+      RELEASE_TAG: ${{ inputs.release_tag || 'Aaasa' }}
+      PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 || 'db76d30372b9f6b4bebc3071a29ca6caf08fd44d038ddb6ddca424854387e600' }}
 
     steps:
       - name: Checkout repository
@@ -101,10 +107,8 @@ jobs:
             echo "::error::This is a single APK, not a complete split package. Missing config APKs cause INSTALL_FAILED_MISSING_SPLIT."
             exit 31
           fi
-          unzip -Z1 "input/$PACKAGE_ASSET" | grep -Eiq '(^|/)manifest\.json$' || {
-            echo "::error::manifest.json is missing. Upload the full APKMirror package archive, not just one extracted APK."
-            exit 32
-          }
+          echo "Archive entries:"
+          unzip -Z1 "input/$PACKAGE_ASSET" | sed -n '1,100p'
 
       - name: Build the player-only infinite-health split package
         run: |
