@@ -82,6 +82,11 @@ for BUNDLE in "${BUNDLES[@]}"; do
 
   strings -a "$BUNDLE" >> "$OUT_DIR/raw-bundle-strings.txt" || true
 
+  for TERM in changeHealth calculateDamageInfliction maxHealth; do
+    "$HERMES_BIN" xref "$BUNDLE" --query "$TERM" \
+      > "$REPORT/hermes-xref-${INDEX}-${TERM}.txt" 2>&1 || true
+  done
+
   if ! "$HERMES_BIN" decompile "$BUNDLE" --deep -o "$JS_OUT" \
     > "$REPORT/hermes-decompile-${INDEX}.log" 2>&1; then
     echo "Hermes decompilation failed; inspect the corresponding log." >> "$INFO"
