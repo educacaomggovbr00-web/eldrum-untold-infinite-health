@@ -157,13 +157,15 @@ jobs:
           emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
           emulator-boot-timeout: 900
-          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks
+          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "$PACKAGE_PATH"
 
       - name: Upload Android emulator diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: eldrum-android-emulator-diagnostics
-          path: build/emulator-test/
+          path: |
+            build/emulator-test/*.txt
+            build/emulator-test/*.png
           if-no-files-found: ignore
           retention-days: 5
