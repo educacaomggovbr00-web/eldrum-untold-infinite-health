@@ -298,8 +298,11 @@ jobs:
             echo "Emulator archive source: $ARM64_EMULATOR_URL"
           } | tee build/emulator-test/runner-environment.txt
           test "$(uname -m)" = "aarch64"
-          test -r /dev/kvm
-          test -w /dev/kvm
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            echo "KVM is available; hardware acceleration can be used."
+          else
+            echo "KVM is unavailable on this hosted runner; continuing with QEMU software emulation."
+          fi
 
       - name: Enable KVM permissions
         run: |
@@ -307,8 +310,11 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sudo chmod 666 /dev/kvm
-          test -r /dev/kvm && test -w /dev/kvm
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm || true
+          else
+            echo "/dev/kvm is not exposed by this hosted runner; QEMU software acceleration will be used."
+          fi
 
       - name: Install Android 15 ARM64 system image and native Linux ARM64 emulator
         run: |
@@ -351,8 +357,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p build/emulator-test
-          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/22.0/bin:/usr/bin:$PATH"
+          SDKMANAGER_BIN="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
+          export PATH="$ANDROID_HOME/emulator:$(dirname "$SDKMANAGER_BIN"):/usr/bin:$PATH"
           EMULATOR_LOG="$GITHUB_WORKSPACE/build/emulator-test/host-emulator.log"
+          if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            ACCEL_MODE=on
+          else
+            ACCEL_MODE=off
+          fi
+          echo "Emulator acceleration mode: $ACCEL_MODE" | tee build/emulator-test/emulator-acceleration.txt
           "$ANDROID_HOME/emulator/emulator" \
             -avd eldrum-arm64 \
             -no-window \
@@ -360,7 +373,7 @@ jobs:
             -no-snapshot \
             -noaudio \
             -no-boot-anim \
-            -accel on \
+            -accel "$ACCEL_MODE" \
             -memory 4096 \
             -port 5554 \
             > "$EMULATOR_LOG" 2>&1 &
