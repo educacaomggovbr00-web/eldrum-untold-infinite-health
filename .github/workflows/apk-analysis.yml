@@ -250,8 +250,6 @@ jobs:
     timeout-minutes: 60
     env:
       PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
-      ANDROID_HOME: ${{ runner.temp }}/android-sdk
-      ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
       ARM64_EMULATOR_URL: https://github.com/Changqing-JING/android-emulator-aarch64-linux/releases/download/v2.12.0-19097-g85fa07f04ef/sdk-repo-linux_aarch64-emulator-standalone-0.zip
       ARM64_EMULATOR_SHA256: 67ce4f576687b067d9b36668405b86b9749745d67d31037616aac12c49c63a65
     steps:
