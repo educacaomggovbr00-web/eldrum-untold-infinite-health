@@ -32,6 +32,13 @@ fi
 adb devices -l > "$RESULT_DIR/adb-devices.txt" 2>&1 || true
 adb logcat -G 16M >/dev/null 2>&1 || true
 adb logcat -b all -c >/dev/null 2>&1 || true
+DEVICE_ABIS="$(adb shell getprop ro.product.cpu.abilist | tr -d '\r')"
+if [[ "$DEVICE_ABIS" != *"arm64-v8a"* || "$DEVICE_ABIS" == *"x86"* ]]; then
+  echo "::error::This diagnostic requires a native ARM64 Android guest without x86 translation. Reported ABIs: $DEVICE_ABIS"
+  printf 'Rejected emulator ABI: %s\n' "$DEVICE_ABIS" > "$RESULT_DIR/abi-check-failed.txt"
+  exit 43
+fi
+echo "Verified native ARM64 guest ABI: $DEVICE_ABIS" | tee "$RESULT_DIR/native-arm64-abi-check.txt"
 
 {
   echo "=== getprop ==="
