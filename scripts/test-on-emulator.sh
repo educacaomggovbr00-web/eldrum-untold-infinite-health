@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-MODIFIED_ARCHIVE="\${1:-build/output/eldrum-untold-infinite-health.apks}"
-ORIGINAL_ARCHIVE="\${2:?Pass the exact original split archive as the second argument}"
+MODIFIED_ARCHIVE="${1:-build/output/eldrum-untold-infinite-health.apks}"
+ORIGINAL_ARCHIVE="${2:?Pass the exact original split archive as the second argument}"
 PACKAGE="com.gotterdammerung.untold"
 RESULT_DIR="build/emulator-test"
-TMP_DIR="\${RUNNER_TEMP:-/tmp}/eldrum-emulator-test"
+TMP_DIR="${RUNNER_TEMP:-/tmp}/eldrum-emulator-test"
 
 mkdir -p "$RESULT_DIR" "$TMP_DIR"
 exec > >(tee -a "$RESULT_DIR/runner-console.txt") 2>&1
@@ -132,13 +132,13 @@ run_case() {
   adb logcat -b all -c >/dev/null 2>&1 || true
 
   mapfile -t APK_FILES < <(find "$archive_dir" -maxdepth 1 -type f -name '*.apk' | sort)
-  if [[ "\${#APK_FILES[@]}" -ne 27 ]]; then
-    echo "Expected 27 split APK files, found \${#APK_FILES[@]}." | tee -a "$out/summary.txt"
+  if [[ "${#APK_FILES[@]}" -ne 27 ]]; then
+    echo "Expected 27 split APK files, found ${#APK_FILES[@]}." | tee -a "$out/summary.txt"
     collect_case_state "$label" "$out"
     return 1
   fi
 
-  if ! adb install-multiple -r -g "\${APK_FILES[@]}" > "$out/install.txt" 2>&1; then
+  if ! adb install-multiple -r -g "${APK_FILES[@]}" > "$out/install.txt" 2>&1; then
     cat "$out/install.txt"
     echo "$label: INSTALL_FAILED" | tee -a "$out/summary.txt"
     collect_case_state "$label" "$out"
@@ -172,7 +172,7 @@ run_case() {
     return 0
   fi
 
-  echo "$label: CRASHED_OR_EXITED (PID at end: \${pid:-none}; PID seen: $seen_pid)" | tee -a "$out/summary.txt"
+  echo "$label: CRASHED_OR_EXITED (PID at end: ${pid:-none}; PID seen: $seen_pid)" | tee -a "$out/summary.txt"
 
   # A bugreport includes framework state and diagnostic buffers when Android permits it.
   if command -v timeout >/dev/null 2>&1; then
