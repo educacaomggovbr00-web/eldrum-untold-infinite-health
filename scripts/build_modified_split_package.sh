@@ -113,6 +113,7 @@ CERT_SHA=""
   echo "APK split count: ${#APK_FILES[@]}"
   echo "All splits are re-signed with one shared local test certificate."
   echo "PairIP pinned signer SHA-256 (Base64): $PAIRIP_SIGNATURE_B64"
+  echo "PairIP CRC metadata retained for assets/index.android.bundle and classes2.dex."
 } >> "$OUT_DIR/splits-manifest.txt"
 
 echo "[3/6] Patch the base split and retain all other split contents..."
@@ -134,10 +135,20 @@ for source_apk in "${APK_FILES[@]}"; do
   signed="$SIGNED_DIR/$filename"
   zipalign -p -f 4 "$work_apk" "$aligned"
   zipalign -c -v 4 "$aligned" > "$WORK_DIR/zipalign-$filename.txt"
+  if [[ "$source_apk" == "$BASE_APK" ]]; then
+    echo "Preserve PairIP ZIP CRC metadata for the modified bundle and DEX..."
+    python3 scripts/preserve_pairip_crc.py "$aligned" "$source_apk" \
+      --entry assets/index.android.bundle --entry classes2.dex
+  fi
   apksigner sign --ks "$KEYSTORE" --ks-key-alias eldrum-local-mod \
     --ks-pass "pass:$KEY_PASS" --key-pass "pass:$KEY_PASS" \
     --out "$signed" "$aligned"
-  unzip -tq "$signed"
+  if [[ "$source_apk" == "$BASE_APK" ]]; then
+    python3 scripts/preserve_pairip_crc.py "$signed" "$source_apk" \
+      --entry assets/index.android.bundle --entry classes2.dex --verify
+  else
+    unzip -tq "$signed"
+  fi
   apksigner verify --verbose --print-certs "$signed" > "$WORK_DIR/signature-$filename.txt"
   this_cert="$(awk '/Signer #1 certificate SHA-256 digest:/ {print $NF; exit}' "$WORK_DIR/signature-$filename.txt")"
   [[ -n "$this_cert" ]] || { echo "Could not read signer certificate from $filename" >&2; exit 25; }
@@ -213,13 +224,14 @@ All $SIGNED_COUNT APK splits were re-signed with one shared local test certifica
 The base split contains the patched Hermes player-health function $FUNCTION_ID.
 The PairIP SignatureCheck signer pin was updated to the SHA-256 digest of this exact build certificate.
 The PairIP signature comparison remains enabled and is verified against the signed APK certificate.
+The original ZIP CRC metadata is retained for the modified Hermes bundle and classes2.dex to satisfy PairIP's archive-integrity checks.
 
 IMPORTANT:
 - This is an APKS split package, not a universal/single APK.
 - Install the complete archive with a compatible split-APK installer.
 - The modified package has a temporary local test certificate and cannot update the original.
 - Back up game progress before uninstalling the original app.
-- Static patch checks passed; actual gameplay and startup still require device testing.
+- Static patch checks and signed ZIP structure checks passed; actual startup and gameplay still require testing on a native ARM64 device.
 EOF
 sha256sum "$SIGNED_DIR"/*.apk > "$OUT_DIR/modified-splits-sha256.txt"
 
