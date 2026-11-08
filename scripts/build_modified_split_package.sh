@@ -113,7 +113,8 @@ CERT_SHA=""
   echo "APK split count: ${#APK_FILES[@]}"
   echo "All splits are re-signed with one shared local test certificate."
   echo "PairIP pinned signer SHA-256 (Base64): $PAIRIP_SIGNATURE_B64"
-  echo "PairIP CRC metadata retained for assets/index.android.bundle and classes2.dex."
+  echo "Real ZIP CRC values retained for all entries (including the edited Hermes bundle and DEX)."
+  echo "Native PairIP runtime checks may still reject re-signed/modified binaries; startup not yet verified."
 } >> "$OUT_DIR/splits-manifest.txt"
 
 echo "[3/6] Patch the base split and retain all other split contents..."
@@ -135,20 +136,13 @@ for source_apk in "${APK_FILES[@]}"; do
   signed="$SIGNED_DIR/$filename"
   zipalign -p -f 4 "$work_apk" "$aligned"
   zipalign -c -v 4 "$aligned" > "$WORK_DIR/zipalign-$filename.txt"
-  if [[ "$source_apk" == "$BASE_APK" ]]; then
-    echo "Preserve PairIP ZIP CRC metadata for the modified bundle and DEX..."
-    python3 scripts/preserve_pairip_crc.py "$aligned" "$source_apk" \
-      --entry assets/index.android.bundle --entry classes2.dex
-  fi
+  # Never forge original ZIP CRC metadata for edited bytes. False CRCs break
+  # the APK's ZIP integrity even when Android's APK signature verification passes.
   apksigner sign --ks "$KEYSTORE" --ks-key-alias eldrum-local-mod \
     --ks-pass "pass:$KEY_PASS" --key-pass "pass:$KEY_PASS" \
     --out "$signed" "$aligned"
-  if [[ "$source_apk" == "$BASE_APK" ]]; then
-    python3 scripts/preserve_pairip_crc.py "$signed" "$source_apk" \
-      --entry assets/index.android.bundle --entry classes2.dex --verify
-  else
-    unzip -tq "$signed"
-  fi
+  # unzip compares actual payload CRCs to central-directory metadata.
+  unzip -tq "$signed"
   apksigner verify --verbose --print-certs "$signed" > "$WORK_DIR/signature-$filename.txt"
   this_cert="$(awk '/Signer #1 certificate SHA-256 digest:/ {print $NF; exit}' "$WORK_DIR/signature-$filename.txt")"
   [[ -n "$this_cert" ]] || { echo "Could not read signer certificate from $filename" >&2; exit 25; }
@@ -224,7 +218,8 @@ All $SIGNED_COUNT APK splits were re-signed with one shared local test certifica
 The base split contains the patched Hermes player-health function $FUNCTION_ID.
 The PairIP SignatureCheck signer pin was updated to the SHA-256 digest of this exact build certificate.
 The PairIP signature comparison remains enabled and is verified against the signed APK certificate.
-The original ZIP CRC metadata is retained for the modified Hermes bundle and classes2.dex to satisfy PairIP's archive-integrity checks.
+The modified Hermes bundle and classes2.dex have correct ZIP CRCs matching the changed bytes.
+The native PairIP runtime may enforce additional checks beyond the APK signing certificate, and startup is NOT yet verified.
 
 IMPORTANT:
 - This is an APKS split package, not a universal/single APK.

@@ -148,7 +148,7 @@ jobs:
           retention-days: 5
 
   validate-signed-splits:
-    name: Validate patched APK splits and PairIP metadata
+    name: Validate signed APK splits and real ZIP checksums
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -181,7 +181,7 @@ jobs:
           sdkmanager --install "build-tools;36.0.0"
           echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
 
-      - name: Validate split count, signatures, package IDs, and PairIP CRCs
+      - name: Validate split count, signatures, package IDs, and real ZIP CRCs
         run: |
           set -euo pipefail
           test -s build/output/eldrum-untold-infinite-health.apks
@@ -215,12 +215,30 @@ jobs:
               print(f"{label}: 27 APK splits; extracted {base_entries[0]}")
           PY
 
-          python3 scripts/preserve_pairip_crc.py \
-            build/validation/modified-base.apk \
-            build/validation/original-base.apk \
-            --entry assets/index.android.bundle \
-            --entry classes2.dex \
-            --verify
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          import zlib
+
+          reference = Path("build/validation/original-base.apk")
+          modified = Path("build/validation/modified-base.apk")
+          targets = ("assets/index.android.bundle", "classes2.dex")
+          with zipfile.ZipFile(reference) as src, zipfile.ZipFile(modified) as dst:
+              for label, package in (("original", src), ("modified", dst)):
+                  bad = package.testzip()
+                  if bad:
+                      raise SystemExit(f"{label} base APK has a real ZIP CRC mismatch: {bad}")
+              for name in targets:
+                  old_payload = src.read(name)
+                  new_payload = dst.read(name)
+                  if new_payload == old_payload:
+                      raise SystemExit(f"{name} was not modified")
+                  info = dst.getinfo(name)
+                  measured = zlib.crc32(new_payload) & 0xFFFFFFFF
+                  if measured != info.CRC:
+                      raise SystemExit(f"{name} reports CRC {info.CRC:08x} but content is {measured:08x}")
+                  print(f"Verified real ZIP CRC of {name}: {measured:08x}")
+          PY
 
           EXPECTED_CERT=""
           COUNT=0
@@ -241,7 +259,7 @@ jobs:
           done
           [[ "$COUNT" -eq 27 ]]
           echo "Validated $COUNT signed splits with one shared certificate."
-          echo "NOTE: CI validates package integrity only; startup still needs testing on a physical ARM64 phone."
+          echo "NOTE: Normal ZIP integrity is checked. Native PairIP and physical-device startup remain unverified."
   emulator-startup-diagnostics:
     name: Capture Android startup logs (native ARM64)
     needs: [build, validate-signed-splits]
@@ -402,6 +420,9 @@ jobs:
             ACCEL_MODE=off
           fi
           echo "Emulator acceleration mode: $ACCEL_MODE" | tee build/emulator-test/emulator-acceleration.txt
+          # Capture startup evidence even if the hosted runner cannot boot the ARM guest.
+          # Every ADB command is bounded; otherwise the boot loop could hang indefinitely.
+          echo "Boot timeout: 15 minutes; ADB queries capped to 8 seconds." | tee build/emulator-test/boot-policy.txt
           echo "Using ANDROID_AVD_HOME=$ANDROID_AVD_HOME" | tee -a build/emulator-test/avd-location.txt
           "$ANDROID_HOME/emulator/emulator" \
             -avd eldrum-arm64 \
@@ -423,15 +444,15 @@ jobs:
 
           /usr/bin/adb start-server
           BOOTED=0
-          for attempt in $(seq 1 300); do
+          for attempt in $(seq 1 90); do
             if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
               echo "::error::Native ARM64 emulator exited before Android finished booting."
               tail -n 200 "$EMULATOR_LOG" || true
               exit 52
             fi
-            STATE="$(/usr/bin/adb -s emulator-5554 get-state 2>/dev/null || true)"
+            STATE="$(timeout -k 2s 8s /usr/bin/adb -s emulator-5554 get-state 2>/dev/null || true)"
             if [[ "$STATE" == "device" ]]; then
-              BOOT_COMPLETE="$(/usr/bin/adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+              BOOT_COMPLETE="$(timeout -k 2s 8s /usr/bin/adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
               if [[ "$BOOT_COMPLETE" == "1" ]]; then
                 BOOTED=1
                 break
@@ -440,7 +461,7 @@ jobs:
             sleep 2
           done
           if [[ "$BOOTED" -ne 1 ]]; then
-            echo "::error::Native ARM64 Android did not finish booting within 10 minutes."
+            echo "::error::Native ARM64 Android did not finish booting during the bounded boot test."
             /usr/bin/adb devices -l > build/emulator-test/adb-devices-on-boot-failure.txt 2>&1 || true
             tail -n 250 "$EMULATOR_LOG" || true
             exit 53
