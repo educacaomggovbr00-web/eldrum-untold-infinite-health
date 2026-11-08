@@ -274,10 +274,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android command-line tools without x86 platform tools
+      - name: Install Android command-line tools and platform-tools metadata
         uses: android-actions/setup-android@v3
         with:
-          packages: ''
+          packages: 'platform-tools'
 
       - name: Install native ARM64 adb and utilities
         run: |
@@ -338,28 +338,30 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -version 2>&1 | tee build/emulator-test/emulator-version.txt
           grep -q "35.6.3" build/emulator-test/emulator-version.txt
 
-          # Register the community-built ARM64 emulator as a local SDK package.
-          # The Google Linux emulator repository does not publish a linux_aarch64 package.
-          cat > "$ANDROID_HOME/emulator/package.xml" <<'EOF'
-          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-          <ns2:repository xmlns:ns2="http://schemas.android.com/repository/android/common/01"
-                          xmlns:ns5="http://schemas.android.com/repository/android/generic/01">
-            <localPackage path="emulator" obsolete="false">
-              <type-details xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                            xsi:type="ns5:genericDetailsType"/>
-              <revision>
-                <major>35</major>
-                <minor>6</minor>
-                <micro>3</micro>
-              </revision>
-              <display-name>Android Emulator</display-name>
-            </localPackage>
-          </ns2:repository>
-          EOF
+          # Register this community ARM64 binary using a valid SDK package descriptor.
+          # Reuse the known-good package.xml installed by android-actions/setup-android.
+          cp "$ANDROID_HOME/platform-tools/package.xml" "$ANDROID_HOME/emulator/package.xml"
+          python3 - "$ANDROID_HOME/emulator/package.xml" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          package_xml = Path(sys.argv[1])
+          xml = package_xml.read_text(encoding="utf-8")
+          xml, count_path = re.subn(r'(<localPackage\s+path=")[^"]+(")', r'\1emulator\2', xml, count=1)
+          xml, count_name = re.subn(r'<display-name>.*?</display-name>', '<display-name>Android Emulator</display-name>', xml, count=1)
+          if count_path != 1 or count_name != 1:
+              raise SystemExit("Could not adapt the platform-tools package.xml for emulator.")
+          package_xml.write_text(xml, encoding="utf-8")
+          PY
           cat > "$ANDROID_HOME/emulator/source.properties" <<'EOF'
           Pkg.Desc=Android Emulator
           Pkg.Revision=35.6.3
+          Pkg.Path=emulator
+          Pkg.UserSrc=false
           EOF
+          grep -q 'localPackage path="emulator"' "$ANDROID_HOME/emulator/package.xml"
+          grep -q 'Android Emulator' "$ANDROID_HOME/emulator/package.xml"
 
           sdkmanager --list_installed | tee build/emulator-test/sdk-installed-packages.txt
           grep -q "emulator" build/emulator-test/sdk-installed-packages.txt
