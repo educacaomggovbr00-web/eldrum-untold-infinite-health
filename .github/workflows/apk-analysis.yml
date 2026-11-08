@@ -316,8 +316,6 @@ jobs:
       - name: Install Android 15 ARM64 system image and native Linux ARM64 emulator
         run: |
           set -euo pipefail
-          sdkmanager --install "system-images;android-35;google_apis;arm64-v8a"
-
           ARCHIVE="$RUNNER_TEMP/android-emulator-arm64.zip"
           EXTRACT="$RUNNER_TEMP/android-emulator-arm64"
           mkdir -p "$EXTRACT" "$ANDROID_HOME"
@@ -338,7 +336,36 @@ jobs:
           chmod +x "$ANDROID_HOME"/emulator/emulator "$ANDROID_HOME"/emulator/qemu/linux-aarch64/* 2>/dev/null || true
           file "$ANDROID_HOME/emulator/emulator" | tee build/emulator-test/emulator-binary.txt
           "$ANDROID_HOME/emulator/emulator" -version 2>&1 | tee build/emulator-test/emulator-version.txt
-          avdmanager create avd \
+          grep -q "35.6.3" build/emulator-test/emulator-version.txt
+
+          # Register the community-built ARM64 emulator as a local SDK package.
+          # The Google Linux emulator repository does not publish a linux_aarch64 package.
+          cat > "$ANDROID_HOME/emulator/package.xml" <<\'EOF\'
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <ns2:repository xmlns:ns2="http://schemas.android.com/repository/android/common/01"
+                          xmlns:ns5="http://schemas.android.com/repository/android/generic/01">
+            <localPackage path="emulator" obsolete="false">
+              <type-details xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                            xsi:type="ns5:genericDetailsType"/>
+              <revision>
+                <major>35</major>
+                <minor>6</minor>
+                <micro>3</micro>
+              </revision>
+              <display-name>Android Emulator</display-name>
+            </localPackage>
+          </ns2:repository>
+          EOF
+          cat > "$ANDROID_HOME/emulator/source.properties" <<\'EOF\'
+          Pkg.Desc=Android Emulator
+          Pkg.Revision=35.6.3
+          EOF
+
+          sdkmanager --list_installed | tee build/emulator-test/sdk-installed-packages.txt
+          grep -q "emulator" build/emulator-test/sdk-installed-packages.txt
+          sdkmanager --install "system-images;android-35;google_apis;arm64-v8a"
+
+          avdmanager create avd \\
             --name eldrum-arm64 \
             --package "system-images;android-35;google_apis;arm64-v8a" \
             --device pixel_7 \
