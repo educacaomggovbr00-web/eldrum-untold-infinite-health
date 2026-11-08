@@ -293,10 +293,7 @@ jobs:
           profile: pixel_7_pro
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: true
-          script: |
-            bash scripts/test-on-emulator.sh \
-              build/output/eldrum-untold-infinite-health.apks \
-              "input/$PACKAGE_ASSET"
+          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
 
       - name: Upload startup diagnostics even when installation or launch fails
         if: ${{ always() }}
