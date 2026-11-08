@@ -252,6 +252,7 @@ jobs:
       PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
       ARM64_EMULATOR_URL: https://github.com/Changqing-JING/android-emulator-aarch64-linux/releases/download/v2.12.0-19097-g85fa07f04ef/sdk-repo-linux_aarch64-emulator-standalone-0.zip
       ARM64_EMULATOR_SHA256: 67ce4f576687b067d9b36668405b86b9749745d67d31037616aac12c49c63a65
+      ANDROID_AVD_HOME: ${{ github.workspace }}/build/android-avds
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -318,7 +319,8 @@ jobs:
           set -euo pipefail
           ARCHIVE="$RUNNER_TEMP/android-emulator-arm64.zip"
           EXTRACT="$RUNNER_TEMP/android-emulator-arm64"
-          mkdir -p "$EXTRACT" "$ANDROID_HOME"
+          mkdir -p "$EXTRACT" "$ANDROID_HOME" "$ANDROID_AVD_HOME"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" | tee build/emulator-test/avd-location.txt
           curl -fL --retry 3 "$ARM64_EMULATOR_URL" -o "$ARCHIVE"
           echo "$ARM64_EMULATOR_SHA256  $ARCHIVE" | sha256sum -c -
           unzip -q "$ARCHIVE" -d "$EXTRACT"
@@ -370,8 +372,16 @@ jobs:
           avdmanager create avd \
             --name eldrum-arm64 \
             --package "system-images;android-35;google_apis;arm64-v8a" \
+            --path "$ANDROID_AVD_HOME/eldrum-arm64.avd" \
             --device pixel_7 \
             --force
+
+          # Fail here (with useful diagnostics) if the emulator cannot discover the AVD.
+          find "$ANDROID_AVD_HOME" -maxdepth 2 -type f -print | sort \
+            | tee build/emulator-test/avd-files.txt
+          "$ANDROID_HOME/emulator/emulator" -list-avds \
+            | tee build/emulator-test/emulator-avd-list.txt
+          grep -Fxq 'eldrum-arm64' build/emulator-test/emulator-avd-list.txt
 
           {
             echo "System image: system-images;android-35;google_apis;arm64-v8a"
@@ -392,6 +402,7 @@ jobs:
             ACCEL_MODE=off
           fi
           echo "Emulator acceleration mode: $ACCEL_MODE" | tee build/emulator-test/emulator-acceleration.txt
+          echo "Using ANDROID_AVD_HOME=$ANDROID_AVD_HOME" | tee -a build/emulator-test/avd-location.txt
           "$ANDROID_HOME/emulator/emulator" \
             -avd eldrum-arm64 \
             -no-window \
