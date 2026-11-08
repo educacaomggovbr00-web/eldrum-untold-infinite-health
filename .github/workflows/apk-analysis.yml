@@ -245,11 +245,11 @@ jobs:
 emulator-startup-diagnostics:
     name: Capture Android startup logs (original vs modified)
     needs: [build, validate-signed-splits]
-    if: \${{ always() && needs.build.result == 'success' }}
+    if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      PACKAGE_ASSET: \${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
+      PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -299,7 +299,7 @@ emulator-startup-diagnostics:
               "input/$PACKAGE_ASSET"
 
       - name: Upload startup diagnostics even when installation or launch fails
-        if: \${{ always() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: eldrum-startup-diagnostics
