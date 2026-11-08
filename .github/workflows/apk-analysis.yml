@@ -340,7 +340,7 @@ jobs:
 
           # Register the community-built ARM64 emulator as a local SDK package.
           # The Google Linux emulator repository does not publish a linux_aarch64 package.
-          cat > "$ANDROID_HOME/emulator/package.xml" <<\'EOF\'
+          cat > "$ANDROID_HOME/emulator/package.xml" <<'EOF'
           <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
           <ns2:repository xmlns:ns2="http://schemas.android.com/repository/android/common/01"
                           xmlns:ns5="http://schemas.android.com/repository/android/generic/01">
@@ -356,7 +356,7 @@ jobs:
             </localPackage>
           </ns2:repository>
           EOF
-          cat > "$ANDROID_HOME/emulator/source.properties" <<\'EOF\'
+          cat > "$ANDROID_HOME/emulator/source.properties" <<'EOF'
           Pkg.Desc=Android Emulator
           Pkg.Revision=35.6.3
           EOF
@@ -365,7 +365,7 @@ jobs:
           grep -q "emulator" build/emulator-test/sdk-installed-packages.txt
           sdkmanager --install "system-images;android-35;google_apis;arm64-v8a"
 
-          avdmanager create avd \\
+          avdmanager create avd \
             --name eldrum-arm64 \
             --package "system-images;android-35;google_apis;arm64-v8a" \
             --device pixel_7 \
