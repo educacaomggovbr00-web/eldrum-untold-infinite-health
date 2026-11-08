@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: eldrum-focused-health-analysis
+  group: eldrum-repaired-zip-arm64-diagnostics
   cancel-in-progress: true
 
 jobs:
