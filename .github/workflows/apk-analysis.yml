@@ -323,9 +323,9 @@ jobs:
           echo "$ARM64_EMULATOR_SHA256  $ARCHIVE" | sha256sum -c -
           unzip -q "$ARCHIVE" -d "$EXTRACT"
 
-          if [[ -x "$EXTRACT/emulator" ]]; then
+          if [[ -f "$EXTRACT/emulator" && -x "$EXTRACT/emulator" ]]; then
             mv "$EXTRACT" "$ANDROID_HOME/emulator"
-          elif [[ -x "$EXTRACT/emulator/emulator" ]]; then
+          elif [[ -f "$EXTRACT/emulator/emulator" && -x "$EXTRACT/emulator/emulator" ]]; then
             mv "$EXTRACT/emulator" "$ANDROID_HOME/emulator"
           else
             echo "::error::Could not locate the emulator executable in the pinned ARM64 archive."
