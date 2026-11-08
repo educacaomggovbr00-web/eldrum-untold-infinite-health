@@ -243,13 +243,17 @@ jobs:
           echo "Validated $COUNT signed splits with one shared certificate."
           echo "NOTE: CI validates package integrity only; startup still needs testing on a physical ARM64 phone."
   emulator-startup-diagnostics:
-    name: Capture Android startup logs (original vs modified)
+    name: Capture Android startup logs (native ARM64)
     needs: [build, validate-signed-splits]
     if: ${{ always() && needs.build.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
     env:
       PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
+      ANDROID_HOME: ${{ runner.temp }}/android-sdk
+      ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+      ARM64_EMULATOR_URL: https://github.com/Changqing-JING/android-emulator-aarch64-linux/releases/download/v2.12.0-19097-g85fa07f04ef/sdk-repo-linux_aarch64-emulator-standalone-0.zip
+      ARM64_EMULATOR_SHA256: 67ce4f576687b067d9b36668405b86b9749745d67d31037616aac12c49c63a65
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -266,40 +270,158 @@ jobs:
           name: eldrum-original-split-source
           path: input
 
-      - name: Initialize diagnostics folder
+      - name: Set up Java for Android command-line tools
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android command-line tools without x86 platform tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Install native ARM64 adb and utilities
         run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y adb unzip curl file
+          echo "/usr/bin" >> "$GITHUB_PATH"
           mkdir -p build/emulator-test
           {
-            echo "Runner: $(uname -a)"
-            echo "UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "Package asset: $PACKAGE_ASSET"
-            echo "Modified package present: $(test -s build/output/eldrum-untold-infinite-health.apks && echo yes || echo no)"
-            echo "Original package present: $(test -s "input/$PACKAGE_ASSET" && echo yes || echo no)"
+            echo "Host architecture: $(uname -m)"
+            echo "Host kernel: $(uname -a)"
+            echo "Runner label: ubuntu-24.04-arm"
+            echo "Android SDK: $ANDROID_HOME"
+            echo "Native adb: $(/usr/bin/adb version | head -n 1)"
+            echo "KVM device: $(test -r /dev/kvm && test -w /dev/kvm && echo accessible || echo unavailable)"
+            echo "Community emulator release: v2.12.0-19097-g85fa07f04ef"
+            echo "Community emulator SHA-256: $ARM64_EMULATOR_SHA256"
+            echo "Emulator archive source: $ARM64_EMULATOR_URL"
           } | tee build/emulator-test/runner-environment.txt
+          test "$(uname -m)" = "aarch64"
+          test -r /dev/kvm
+          test -w /dev/kvm
 
-      - name: Enable KVM when available
+      - name: Enable KVM permissions
         run: |
+          set -euo pipefail
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-        continue-on-error: true
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
 
-      - name: Run Android 15 x86_64 startup comparison and collect logs
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_7_pro
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
-          disable-animations: true
-          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
+      - name: Install Android 15 ARM64 system image and native Linux ARM64 emulator
+        run: |
+          set -euo pipefail
+          sdkmanager --install "system-images;android-35;google_apis;arm64-v8a"
 
-      - name: Upload startup diagnostics even when installation or launch fails
+          ARCHIVE="$RUNNER_TEMP/android-emulator-arm64.zip"
+          EXTRACT="$RUNNER_TEMP/android-emulator-arm64"
+          mkdir -p "$EXTRACT" "$ANDROID_HOME"
+          curl -fL --retry 3 "$ARM64_EMULATOR_URL" -o "$ARCHIVE"
+          echo "$ARM64_EMULATOR_SHA256  $ARCHIVE" | sha256sum -c -
+          unzip -q "$ARCHIVE" -d "$EXTRACT"
+
+          if [[ -x "$EXTRACT/emulator" ]]; then
+            mv "$EXTRACT" "$ANDROID_HOME/emulator"
+          elif [[ -x "$EXTRACT/emulator/emulator" ]]; then
+            mv "$EXTRACT/emulator" "$ANDROID_HOME/emulator"
+          else
+            echo "::error::Could not locate the emulator executable in the pinned ARM64 archive."
+            find "$EXTRACT" -maxdepth 4 -type f | sort | head -n 100
+            exit 51
+          fi
+
+          chmod +x "$ANDROID_HOME"/emulator/emulator "$ANDROID_HOME"/emulator/qemu/linux-aarch64/* 2>/dev/null || true
+          file "$ANDROID_HOME/emulator/emulator" | tee build/emulator-test/emulator-binary.txt
+          "$ANDROID_HOME/emulator/emulator" -version 2>&1 | tee build/emulator-test/emulator-version.txt
+          avdmanager create avd \
+            --name eldrum-arm64 \
+            --package "system-images;android-35;google_apis;arm64-v8a" \
+            --device pixel_7 \
+            --force
+
+          {
+            echo "System image: system-images;android-35;google_apis;arm64-v8a"
+            echo "AVD: eldrum-arm64"
+            echo "Guest architecture expected: arm64-v8a"
+          } | tee build/emulator-test/arm64-avd.txt
+
+      - name: Boot native ARM64 Android and run original vs modified
+        run: |
+          set -Eeuo pipefail
+          mkdir -p build/emulator-test
+          export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/22.0/bin:/usr/bin:$PATH"
+          EMULATOR_LOG="$GITHUB_WORKSPACE/build/emulator-test/host-emulator.log"
+          "$ANDROID_HOME/emulator/emulator" \
+            -avd eldrum-arm64 \
+            -no-window \
+            -gpu swiftshader_indirect \
+            -no-snapshot \
+            -noaudio \
+            -no-boot-anim \
+            -accel on \
+            -memory 4096 \
+            -port 5554 \
+            > "$EMULATOR_LOG" 2>&1 &
+          EMULATOR_PID=$!
+          echo "$EMULATOR_PID" > build/emulator-test/emulator-host-pid.txt
+          cleanup() {
+            /usr/bin/adb -s emulator-5554 emu kill >/dev/null 2>&1 || kill "$EMULATOR_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          /usr/bin/adb start-server
+          BOOTED=0
+          for attempt in $(seq 1 300); do
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "::error::Native ARM64 emulator exited before Android finished booting."
+              tail -n 200 "$EMULATOR_LOG" || true
+              exit 52
+            fi
+            STATE="$(/usr/bin/adb -s emulator-5554 get-state 2>/dev/null || true)"
+            if [[ "$STATE" == "device" ]]; then
+              BOOT_COMPLETE="$(/usr/bin/adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+              if [[ "$BOOT_COMPLETE" == "1" ]]; then
+                BOOTED=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [[ "$BOOTED" -ne 1 ]]; then
+            echo "::error::Native ARM64 Android did not finish booting within 10 minutes."
+            /usr/bin/adb devices -l > build/emulator-test/adb-devices-on-boot-failure.txt 2>&1 || true
+            tail -n 250 "$EMULATOR_LOG" || true
+            exit 53
+          fi
+
+          {
+            echo "Host: $(uname -m)"
+            echo "Guest release: $(/usr/bin/adb -s emulator-5554 shell getprop ro.build.version.release | tr -d '\r')"
+            echo "Guest API: $(/usr/bin/adb -s emulator-5554 shell getprop ro.build.version.sdk | tr -d '\r')"
+            echo "Guest ABIs: $(/usr/bin/adb -s emulator-5554 shell getprop ro.product.cpu.abilist | tr -d '\r')"
+            echo "Guest primary ABI: $(/usr/bin/adb -s emulator-5554 shell getprop ro.product.cpu.abi | tr -d '\r')"
+          } | tee build/emulator-test/native-arm64-device.txt
+
+          GUEST_ABIS="$(/usr/bin/adb -s emulator-5554 shell getprop ro.product.cpu.abilist | tr -d '\r')"
+          [[ "$GUEST_ABIS" == *"arm64-v8a"* ]]
+          [[ "$GUEST_ABIS" != *"x86"* ]]
+
+          set +e
+          bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
+          TEST_STATUS=$?
+          set -e
+          echo "$TEST_STATUS" > build/emulator-test/test-exit-code.txt
+          exit "$TEST_STATUS"
+
+      - name: Upload native ARM64 startup diagnostics even when installation or launch fails
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: eldrum-startup-diagnostics
+          name: eldrum-startup-diagnostics-native-arm64
           path: build/emulator-test/**
           retention-days: 14
           if-no-files-found: warn
