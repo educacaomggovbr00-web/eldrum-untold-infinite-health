@@ -242,3 +242,67 @@ jobs:
           [[ "$COUNT" -eq 27 ]]
           echo "Validated $COUNT signed splits with one shared certificate."
           echo "NOTE: CI validates package integrity only; startup still needs testing on a physical ARM64 phone."
+emulator-startup-diagnostics:
+    name: Capture Android startup logs (original vs modified)
+    needs: [build, validate-signed-splits]
+    if: \${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PACKAGE_ASSET: \${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download modified split package
+        uses: actions/download-artifact@v4
+        with:
+          name: eldrum-untold-infinite-health-split-apks
+          path: build/output
+
+      - name: Download original split source
+        uses: actions/download-artifact@v4
+        with:
+          name: eldrum-original-split-source
+          path: input
+
+      - name: Initialize diagnostics folder
+        run: |
+          mkdir -p build/emulator-test
+          {
+            echo "Runner: $(uname -a)"
+            echo "UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "Package asset: $PACKAGE_ASSET"
+            echo "Modified package present: $(test -s build/output/eldrum-untold-infinite-health.apks && echo yes || echo no)"
+            echo "Original package present: $(test -s "input/$PACKAGE_ASSET" && echo yes || echo no)"
+          } | tee build/emulator-test/runner-environment.txt
+
+      - name: Enable KVM when available
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+        continue-on-error: true
+
+      - name: Run Android 15 x86_64 startup comparison and collect logs
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
+          disable-animations: true
+          script: |
+            bash scripts/test-on-emulator.sh \
+              build/output/eldrum-untold-infinite-health.apks \
+              "input/$PACKAGE_ASSET"
+
+      - name: Upload startup diagnostics even when installation or launch fails
+        if: \${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eldrum-startup-diagnostics
+          path: build/emulator-test/**
+          retention-days: 14
+          if-no-files-found: warn
