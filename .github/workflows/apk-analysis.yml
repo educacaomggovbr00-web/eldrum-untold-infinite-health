@@ -152,6 +152,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
