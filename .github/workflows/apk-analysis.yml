@@ -242,7 +242,7 @@ jobs:
           [[ "$COUNT" -eq 27 ]]
           echo "Validated $COUNT signed splits with one shared certificate."
           echo "NOTE: CI validates package integrity only; startup still needs testing on a physical ARM64 phone."
-emulator-startup-diagnostics:
+  emulator-startup-diagnostics:
     name: Capture Android startup logs (original vs modified)
     needs: [build, validate-signed-splits]
     if: ${{ always() && needs.build.result == 'success' }}
