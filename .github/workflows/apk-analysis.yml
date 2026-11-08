@@ -150,7 +150,7 @@ jobs:
   test-native-arm64:
     name: Launch original and modified game on native ARM64 Android
     needs: build
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
       PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
@@ -158,17 +158,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Verify native ARM64 runner and KVM
+      - name: Verify x86 host for ARM64 software emulation
         run: |
           set -euo pipefail
           echo "Host architecture: $(uname -m)"
-          test "$(uname -m)" = "aarch64"
-          lscpu
-          if [[ ! -e /dev/kvm ]]; then
-            echo "::error::Native ARM64 runner does not expose /dev/kvm; Android ARM64 emulator cannot use hardware virtualization."
-            exit 40
-          fi
-          ls -l /dev/kvm
+          test "$(uname -m)" = "x86_64"
+          echo "The Android guest will use a native arm64-v8a system image without ABI translation."
 
       - name: Download modified split package
         uses: actions/download-artifact@v4
@@ -189,14 +184,7 @@ jobs:
           test -s "input/$PACKAGE_ASSET"
           sha256sum build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
 
-      - name: Enable KVM permissions
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          sudo chmod 0666 /dev/kvm
-
-      - name: Boot native ARM64 Android 11 emulator and test both packages
+      - name: Boot Android 11 ARM64 virtual device and test both packages
         uses: reactivecircus/android-emulator-runner@v2
         timeout-minutes: 35
         with:
@@ -206,7 +194,8 @@ jobs:
           profile: pixel_5
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          emulator-boot-timeout: 900
+          disable-linux-hw-accel: true
+          emulator-boot-timeout: 1200
           script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
 
       - name: Upload native ARM64 emulator diagnostics
