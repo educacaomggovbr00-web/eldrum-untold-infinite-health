@@ -18,6 +18,12 @@ mkdir -p "$TMP_DIR"
   echo "ABIs: $(adb shell getprop ro.product.cpu.abilist | tr -d '\r')"
 } | tee -a "$RESULT_DIR/summary.txt"
 
+DEVICE_ABIS="$(adb shell getprop ro.product.cpu.abilist | tr -d '\r')"
+if [[ "$DEVICE_ABIS" != *"arm64-v8a"* || "$DEVICE_ABIS" == *"x86"* ]]; then
+  echo "::error::This test requires a native ARM64 Android guest. Reported ABIs: $DEVICE_ABIS"
+  exit 41
+fi
+
 extract_splits() {
   local archive="$1"
   local out="$2"
@@ -67,7 +73,7 @@ run_case() {
   adb logcat -c
   adb shell monkey -p "$PACKAGE" 1 2>&1 | tee "$launch"
 
-  for attempt in $(seq 1 20); do
+  for attempt in $(seq 1 30); do
     pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
     if [[ -n "$pid" ]]; then
       alive=1
@@ -84,7 +90,7 @@ run_case() {
   adb exec-out screencap -p > "$RESULT_DIR/$label-screenshot.png" || true
 
   pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
-  if [[ -n "$pid" ]] && grep -q "$PACKAGE" "$RESULT_DIR/$label-activities.txt"; then
+  if [[ -n "$pid" ]] && grep -Eiq "topResumedActivity=.*$PACKAGE|ResumedActivity:.*$PACKAGE|Resumed: ActivityRecord.*$PACKAGE" "$RESULT_DIR/$label-activities.txt"; then
     echo "$label: LAUNCH_SURVIVED (PID $pid)" | tee -a "$summary"
     return 0
   fi
@@ -115,7 +121,7 @@ fi
   echo "Original control: $ORIGINAL_RESULT"
   echo "Modified build: $MODIFIED_RESULT"
   if [[ "$ORIGINAL_RESULT" == "FAIL" && "$MODIFIED_RESULT" == "FAIL" ]]; then
-    echo "Conclusion: both packages fail on this translated ARM64 emulator; this environment cannot isolate the mod as the cause."
+    echo "Conclusion: both packages fail on the native ARM64 emulator; compare logs before attributing the cause."
   elif [[ "$ORIGINAL_RESULT" == "PASS" && "$MODIFIED_RESULT" == "FAIL" ]]; then
     echo "Conclusion: original works on this emulator; modified build has a reproducible startup failure."
   elif [[ "$MODIFIED_RESULT" == "PASS" ]]; then
