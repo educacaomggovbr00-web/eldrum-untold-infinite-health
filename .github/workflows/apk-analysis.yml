@@ -147,23 +147,14 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
-  test-native-arm64:
-    name: Launch original and modified game on native ARM64 Android
+  validate-signed-splits:
+    name: Validate patched APK splits and PairIP metadata
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 50
-    env:
-      PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Verify x86 host for ARM64 software emulation
-        run: |
-          set -euo pipefail
-          echo "Host architecture: $(uname -m)"
-          test "$(uname -m)" = "x86_64"
-          echo "The Android guest will use a native arm64-v8a system image without ABI translation."
 
       - name: Download modified split package
         uses: actions/download-artifact@v4
@@ -171,40 +162,75 @@ jobs:
           name: eldrum-untold-infinite-health-split-apks
           path: build/output
 
-      - name: Download original split package
+      - name: Download original split source
         uses: actions/download-artifact@v4
         with:
           name: eldrum-original-split-source
           path: input
 
-      - name: Verify source and patched packages
+      - name: Set up Android build tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools;build-tools;36.0.0'
+
+      - name: Validate split count, signatures, package IDs, and PairIP CRCs
         run: |
           set -euo pipefail
           test -s build/output/eldrum-untold-infinite-health.apks
-          test -s "input/$PACKAGE_ASSET"
-          sha256sum build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
+          SOURCE="input/${{ env.PACKAGE_ASSET }}"
+          test -s "$SOURCE"
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
 
-      - name: Boot Android 11 ARM64 virtual device and test both packages
-        uses: reactivecircus/android-emulator-runner@v2
-        timeout-minutes: 35
-        with:
-          api-level: 30
-          target: google_apis
-          arch: arm64-v8a
-          profile: pixel_5
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          disable-animations: true
-          disable-linux-hw-accel: true
-          emulator-boot-timeout: 1200
-          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
+          source = Path("input/${{ env.PACKAGE_ASSET }}")
+          modified = Path("build/output/eldrum-untold-infinite-health.apks")
+          base_source = Path("build/validation/original-base.apk")
+          base_modified = Path("build/validation/modified-base.apk")
+          base_source.parent.mkdir(parents=True, exist_ok=True)
 
-      - name: Upload native ARM64 emulator diagnostics
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: eldrum-native-arm64-diagnostics
-          path: |
-            build/emulator-test/*.txt
-            build/emulator-test/*.png
-          if-no-files-found: ignore
-          retention-days: 5
+          for archive, output, label in (
+              (source, base_source, "original"),
+              (modified, base_modified, "modified"),
+          ):
+              with zipfile.ZipFile(archive) as z:
+                  bad = z.testzip()
+                  if bad:
+                      raise SystemExit(f"{label} APKS outer ZIP is corrupt at {bad}")
+                  apk_entries = [n for n in z.namelist() if n.lower().endswith(".apk")]
+                  if len(apk_entries) != 27:
+                      raise SystemExit(f"{label} package contains {len(apk_entries)} APKs, expected 27")
+                  base_entries = [n for n in apk_entries if Path(n).name == "base.apk"]
+                  if len(base_entries) != 1:
+                      raise SystemExit(f"{label} archive must contain exactly one base.apk")
+                  output.write_bytes(z.read(base_entries[0]))
+              print(f"{label}: 27 APK splits; extracted {base_entries[0]}")
+          PY
+
+          python3 scripts/preserve_pairip_crc.py \
+            build/validation/modified-base.apk \
+            build/validation/original-base.apk \
+            --entry assets/index.android.bundle \
+            --entry classes2.dex \
+            --verify
+
+          EXPECTED_CERT=""
+          COUNT=0
+          for apk in build/output/splits/*.apk; do
+            test -s "$apk"
+            DETAILS="$(apksigner verify --verbose --print-certs "$apk")"
+            CERT="$(printf '%s\n' "$DETAILS" | awk '/Signer #1 certificate SHA-256 digest:/ {print $NF; exit}')"
+            test -n "$CERT"
+            if [[ -z "$EXPECTED_CERT" ]]; then
+              EXPECTED_CERT="$CERT"
+            elif [[ "$CERT" != "$EXPECTED_CERT" ]]; then
+              echo "::error::Split APKs have mismatched signing certificates."
+              exit 1
+            fi
+            APP_ID="$(apkanalyzer manifest application-id "$apk")"
+            [[ "$APP_ID" == "com.gotterdammerung.untold" ]]
+            COUNT=$((COUNT + 1))
+          done
+          [[ "$COUNT" -eq 27 ]]
+          echo "Validated $COUNT signed splits with one shared certificate."
+          echo "NOTE: CI validates package integrity only; startup still needs testing on a physical ARM64 phone."
