@@ -138,32 +138,82 @@ jobs:
           retention-days: 5
           if-no-files-found: error
 
-      - name: Enable KVM for Android Emulator
+      - name: Publish original split archive for native ARM64 comparison
         if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eldrum-original-split-source
+          path: input/${{ env.PACKAGE_ASSET }}
+          if-no-files-found: error
+          retention-days: 5
+
+  test-native-arm64:
+    name: Launch original and modified game on native ARM64 Android
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    env:
+      PACKAGE_ASSET: ${{ inputs.package_asset || 'Eldrum-Untold-Text-Based-RPG_1.11.5_apkcube.apks' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Verify native ARM64 runner and KVM
+        run: |
+          set -euo pipefail
+          echo "Host architecture: $(uname -m)"
+          test "$(uname -m)" = "aarch64"
+          lscpu
+          if [[ ! -e /dev/kvm ]]; then
+            echo "::error::Native ARM64 runner does not expose /dev/kvm; Android ARM64 emulator cannot use hardware virtualization."
+            exit 40
+          fi
+          ls -l /dev/kvm
+
+      - name: Download modified split package
+        uses: actions/download-artifact@v4
+        with:
+          name: eldrum-untold-infinite-health-split-apks
+          path: build/output
+
+      - name: Download original split package
+        uses: actions/download-artifact@v4
+        with:
+          name: eldrum-original-split-source
+          path: input
+
+      - name: Verify source and patched packages
+        run: |
+          set -euo pipefail
+          test -s build/output/eldrum-untold-infinite-health.apks
+          test -s "input/$PACKAGE_ASSET"
+          sha256sum build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
+
+      - name: Enable KVM permissions
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          sudo chmod 0666 /dev/kvm
 
-      - name: Boot Android 15 emulator and launch the modified game
-        if: ${{ success() }}
+      - name: Boot native ARM64 Android 11 emulator and test both packages
         uses: reactivecircus/android-emulator-runner@v2
         timeout-minutes: 35
         with:
-          api-level: 35
+          api-level: 30
           target: google_apis
-          arch: x86_64
+          arch: arm64-v8a
           profile: pixel_5
-          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
           emulator-boot-timeout: 900
-          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "$PACKAGE_PATH"
+          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks "input/$PACKAGE_ASSET"
 
-      - name: Upload Android emulator diagnostics
+      - name: Upload native ARM64 emulator diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: eldrum-android-emulator-diagnostics
+          name: eldrum-native-arm64-diagnostics
           path: |
             build/emulator-test/*.txt
             build/emulator-test/*.png
