@@ -137,3 +137,33 @@ jobs:
             build/output/function-*-after-patch.hasm
           retention-days: 5
           if-no-files-found: error
+
+      - name: Enable KVM for Android Emulator
+        if: ${{ success() }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Boot Android 15 emulator and launch the modified game
+        if: ${{ success() }}
+        uses: reactivecircus/android-emulator-runner@v2
+        timeout-minutes: 35
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-snapshot-load -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: bash scripts/test-on-emulator.sh build/output/eldrum-untold-infinite-health.apks
+
+      - name: Upload Android emulator diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eldrum-android-emulator-diagnostics
+          path: build/emulator-test/
+          if-no-files-found: ignore
+          retention-days: 5
