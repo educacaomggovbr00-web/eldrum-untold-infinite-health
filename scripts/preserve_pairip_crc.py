@@ -13,8 +13,8 @@ import zipfile
 import zlib
 from pathlib import Path
 
-LOCAL_SIG = b"PK\\x03\\x04"
-CENTRAL_SIG = b"PK\\x01\\x02"
+LOCAL_SIG = b"PK\x03\x04"
+CENTRAL_SIG = b"PK\x01\x02"
 
 
 def _name(raw: bytes, flags: int) -> str:
